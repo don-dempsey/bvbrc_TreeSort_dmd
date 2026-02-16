@@ -1198,13 +1198,25 @@ class TreeSortRunner:
                if line.startswith("FOUND_SEGMENTS:"):
                   self.job_data.segments = line.replace("FOUND_SEGMENTS:", "").strip()
 
-                  print(f"job_data.segments has been updated to {self.job_data.segments}")
+                  sys.stdout.write(f"job_data.segments has been updated to {self.job_data.segments}")
 
                else:
                   # Write the script's stdout to run_treesort.py's stdout.
                   sys.stdout.write(f"{line}\n")
+         else:
+            sys.stderr.write(f"prepare_treesort_dataset failed with return code {result.returncode}:\n")
 
-      
+            if result.stdout is not None:
+               sys.stdout.write(result.stdout)
+               sys.stderr.write(f"\tOutput: {result.stdout}")
+            else:
+               sys.stderr.write(f"\tNo output was provided")
+
+            if result.stderr is not None:
+               sys.stderr.write(f"\tErrors: {result.stderr}")
+            else:
+               sys.stderr.write(f"\tNo error information is available.")
+               
       except subprocess.CalledProcessError as cpe:
          sys.stderr.write(f"prepare_treesort_dataset failed:\n")
 
@@ -1218,6 +1230,8 @@ class TreeSortRunner:
             sys.stderr.write(f"\tErrors: {cpe.stderr}")
          else:
             sys.stderr.write(f"\tNo error information is available.")
+
+         return False
 
       except Exception as e:
          sys.stderr.write(f"Error preparing dataset:\n {e}\n")
