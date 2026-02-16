@@ -707,7 +707,6 @@ class TreeSortRunner:
       # Assemble the components as JSON.
       self.results.json = f"{{\"segments\":{{{segments_json}}}, \"summary\":[{summary_array}]}}"
 
-      # TESTING
       sys.stdout.write(f"\n\n{self.results.json}\n\n")
 
       
@@ -1049,8 +1048,8 @@ class TreeSortRunner:
       if not name:
          print(f"Name is empty\n")
          return ""
-      else:
-         name = name.strip()
+      
+      name = name.strip()
 
       # Is this a TS_NODE_* node?
       if name.startswith("TS_NODE_"):
@@ -1205,6 +1204,21 @@ class TreeSortRunner:
                   # Write the script's stdout to run_treesort.py's stdout.
                   sys.stdout.write(f"{line}\n")
 
+      
+      except subprocess.CalledProcessError as cpe:
+         sys.stderr.write(f"prepare_treesort_dataset failed:\n")
+
+         if cpe.stdout is not None:
+            sys.stdout.write(cpe.stdout)
+            sys.stderr.write(f"\tOutput: {cpe.stdout}")
+         else:
+            sys.stderr.write(f"\tNo output was provided")
+
+         if cpe.stderr is not None:
+            sys.stderr.write(f"\tErrors: {cpe.stderr}")
+         else:
+            sys.stderr.write(f"\tNo error information is available.")
+
       except Exception as e:
          sys.stderr.write(f"Error preparing dataset:\n {e}\n")
          return False
@@ -1234,7 +1248,7 @@ class TreeSortRunner:
          cmd.append(f"{self.work_directory}/{Constants.DESCRIPTOR_FILE_NAME}")
 
          #-----------------------------------------------------------------------------------------------------------------------------
-         # The "match on" options are mutually exclusive.
+         # The "match type" options are mutually exclusive.
          #-----------------------------------------------------------------------------------------------------------------------------
          if self.job_data.match_type == MatchType.Strain:
             cmd.append(ScriptOption.MatchOnStrain.value)
@@ -1269,7 +1283,21 @@ class TreeSortRunner:
 
          if result.returncode == 0:
             result_status = True
-                  
+
+      except subprocess.CalledProcessError as cpe:
+         sys.stderr.write(f"TreeSort failed:\n")
+
+         if cpe.stdout is not None:
+            sys.stdout.write(cpe.stdout)
+            sys.stderr.write(f"\tOutput: {cpe.stdout}")
+         else:
+            sys.stderr.write(f"\tNo output was provided")
+
+         if cpe.stderr is not None:
+            sys.stderr.write(f"\tErrors: {cpe.stderr}")
+         else:
+            sys.stderr.write(f"\tNo error information is available.")
+            
       except Exception as e:
          sys.stderr.write(f"Error in TreeSort:\n {type(e).__name__}: {e}\n")
          return False

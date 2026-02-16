@@ -102,10 +102,11 @@
             <li><b>strain</b>: The name of the strain from the FASTA header/defline</li>
             <li><b>is_reassorted</b>: If a reassortment was inferred for this strain, this column will contain "Y".</li>
             <li><b>is_uncertain</b>: If the reassortment placement is uncertain, this column will contain "Y". <br/><br/>
-               <div class="treesort--inline-details">TreeSort does not have enough information to confidently place a reassortment event on a specific branch of the tree. 
-               TreeSort always narrows down the reassortment event to a particular ancestral node on a tree, but may not distinguish which of the child branches 
-               was affected by reassortment. In those cases, TreeSort will annotate both child branches in the annotated tree file with a ?&lt;segment-name&gt; tag. 
-               For example, ?PB2(26) below indicates that the reassortment with PB2 might have happened on either of the child branches.<br/><br/>
+               <div class="treesort--inline-details">If this column has a "Y", it means that TreeSort did not have enough information to confidently place this 
+               reassortment event on a specific branch of the tree. TreeSort always narrows down the reassortment event to a particular ancestral node on a tree, but may 
+               not distinguish which of the child branches was affected by reassortment. In those cases, TreeSort will annotate both child branches in the annotated 
+               tree file with a ?&lt;segment-name&gt; tag. For example, ?PB2(26) below indicates that the reassortment with PB2 might have happened on either of the 
+               child branches.<br/><br/>
                Note that this section only applies to the "local" inference method (the default method for TreeSort). The "mincut" method always infers certain 
                reassortment placements.</div>
             </li>
