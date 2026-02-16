@@ -1208,28 +1208,26 @@ class TreeSortRunner:
 
             if result.stdout is not None:
                sys.stdout.write(result.stdout)
-               sys.stderr.write(f"\tOutput: {result.stdout}")
             else:
-               sys.stderr.write(f"\tNo output was provided")
+               sys.stdout.write(f"No output was provided")
 
             if result.stderr is not None:
-               sys.stderr.write(f"\tErrors: {result.stderr}")
+               sys.stderr.write(f"Errors:\n{result.stderr}")
             else:
-               sys.stderr.write(f"\tNo error information is available.")
-               
+               sys.stderr.write(f"No error information is available.")
+
       except subprocess.CalledProcessError as cpe:
          sys.stderr.write(f"prepare_treesort_dataset failed:\n")
 
          if cpe.stdout is not None:
             sys.stdout.write(cpe.stdout)
-            sys.stderr.write(f"\tOutput: {cpe.stdout}")
          else:
-            sys.stderr.write(f"\tNo output was provided")
+            sys.stdout.write(f"No output was provided")
 
          if cpe.stderr is not None:
-            sys.stderr.write(f"\tErrors: {cpe.stderr}")
+            sys.stderr.write(f"Errors:\n{cpe.stderr}")
          else:
-            sys.stderr.write(f"\tNo error information is available.")
+            sys.stderr.write(f"No error information is available.")
 
          return False
 
@@ -1303,14 +1301,13 @@ class TreeSortRunner:
 
          if cpe.stdout is not None:
             sys.stdout.write(cpe.stdout)
-            sys.stderr.write(f"\tOutput: {cpe.stdout}")
          else:
-            sys.stderr.write(f"\tNo output was provided")
+            sys.stdout.write(f"No output was provided")
 
          if cpe.stderr is not None:
-            sys.stderr.write(f"\tErrors: {cpe.stderr}")
+            sys.stderr.write(f"Errors:\n{cpe.stderr}")
          else:
-            sys.stderr.write(f"\tNo error information is available.")
+            sys.stderr.write(f"No error information is available.")
             
       except Exception as e:
          sys.stderr.write(f"Error in TreeSort:\n {type(e).__name__}: {e}\n")

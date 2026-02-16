@@ -130,6 +130,8 @@ empty_tre_count=$(find ${outdir} -maxdepth 1 -type f -path "*.tre" -empty | wc -
 if [ $((tre_count - empty_tre_count)) -lt 1 ]; then
    echo -e "No tree files were generated.\n"
    exit 1
+else
+   echo -e "$((tre_count - empty_tre_count)) tree files were generated.\n"
 fi
 
 # Root the trees with a custom rooting script (in parallel)
