@@ -102,7 +102,7 @@ if [ $FAST -eq 0 ]; then
 	for seg in "${found_segments[@]}"
 	do
 		if [ $seg != $ref_seg ]; then
-			fasttree -nt -gtr -gamma ${outdir}/${seg}-${name}.aln > ${outdir}/${seg}-${name}.tre &
+			fasttree -nt -gtr -gamma ${outdir}/${seg}-${name}.aln > ${outdir}/${seg}-${name}.tre >&2 &
 		fi
 	done
 	wait  # Wait to finish.
@@ -117,7 +117,7 @@ else
 	echo -e "Building trees in parallel with FastTree...\n"
 	for seg in "${found_segments[@]}"
 	do
-		fasttree -nt -gtr -gamma "${outdir}/${seg}-${name}.aln" > "${outdir}/${seg}-${name}.tre" &
+		fasttree -nt -gtr -gamma "${outdir}/${seg}-${name}.aln" > "${outdir}/${seg}-${name}.tre" >&2 &
 	done
 	wait  # Wait to finish.
 fi
