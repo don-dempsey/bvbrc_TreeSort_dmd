@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
 			shift
 			;;
 		-*|--*)
-			echo "Unrecognized option $1"
+			echo "Unrecognized option $1" >&2
 			exit 1
 			;;
 		*)
@@ -46,7 +46,7 @@ outdir="$3"  # Path to the directory to store the results
 
 # Make sure the FASTA input file exists and is not empty.
 if [ ! -e "$main_fasta" ] || [ ! -s "$main_fasta" ]; then
-   echo -e "The FASTA input file does not exist or is empty.\n"
+   echo -e "The FASTA input file does not exist or is empty.\n" >&2
    exit 1
 fi
 
@@ -73,7 +73,7 @@ do
       mafft --thread 6 "${outdir}/${seg}-${name}" | sed "s/|${seg}|/|/g"> "${outdir}/${seg}-${name}.aln"
 
       if [ $? -ne 0 ]; then
-         echo "MAFFT alignment failed"
+         echo "MAFFT alignment failed for segment ${seg}" >&2
          exit 1
       fi
    fi 
@@ -82,7 +82,7 @@ do
 done
 
 if [ ${#found_segments[@]} -eq 0 ]; then
-   echo -e "No segments found in the input file.\n"
+   echo -e "No segments found in the input file.\n" >&2
    exit 1
 fi
 
@@ -92,7 +92,7 @@ empty_aln_count=$(find ${outdir} -maxdepth 1 -type f -path "*.aln" -empty | wc -
 
 # Were alignment files generated?
 if [ $((aln_count - empty_aln_count)) -lt 1 ]; then
-   echo -e "No alignment files were generated.\n"
+   echo -e "No alignment files were generated.\n" >&2
    exit 1
 fi
 
@@ -128,7 +128,7 @@ empty_tre_count=$(find ${outdir} -maxdepth 1 -type f -path "*.tre" -empty | wc -
 
 # Were tree files generated?
 if [ $((tre_count - empty_tre_count)) -lt 1 ]; then
-   echo -e "No tree files were generated.\n"
+   echo -e "No tree files were generated.\n" >&2
    exit 1
 else
    echo -e "$((tre_count - empty_tre_count)) tree files were generated.\n"
@@ -152,7 +152,7 @@ empty_rooted_count=$(find ${outdir} -maxdepth 1 -type f -path "*.aln.rooted.tre"
 
 # Were tree files generated?
 if [ $((rooted_count - empty_rooted_count)) -lt 1 ]; then
-   echo -e "No rooted tree files were generated.\n"
+   echo -e "No rooted tree files were generated.\n" >&2
    exit 1
 fi
 

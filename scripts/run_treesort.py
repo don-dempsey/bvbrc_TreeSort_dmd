@@ -329,7 +329,7 @@ class TreeSortRunner:
          cmd.append(csv_file_path)
 
          # Display the command about to be run.
-         print(f"{' '.join(cmd)}\n")
+         sys.stdout.write(f"{' '.join(cmd)}\n")
 
          # Run the command
          cmd_result = subprocess.call(cmd, shell=False)
@@ -596,7 +596,7 @@ class TreeSortRunner:
             phyloxml_file_path]
 
          # Display the command about to be run.
-         print(f"{' '.join(cmd)}\n")
+         sys.stdout.write(f"{' '.join(cmd)}\n")
 
          # Run the command
          cmd_result = subprocess.call(cmd, shell=False)
@@ -1041,12 +1041,12 @@ class TreeSortRunner:
       # Get the name element
       name_match = PHYLOXML_REGEX.NAME.search(clade)
       if not name_match:
-         print(f"No name match for {clade}\n")
+         sys.stderr.write(f"No name match for {clade}\n")
          return ""
       
       name = name_match.group("name")
       if not name:
-         print(f"Name is empty\n")
+         sys.stderr.write(f"Name is empty\n")
          return ""
       
       name = name.strip()
@@ -1183,7 +1183,7 @@ class TreeSortRunner:
          cmd.append(self.work_directory)
 
          # Display the command about to be run.
-         print(f"{' '.join(cmd)}\n")
+         sys.stdout.write(f"{' '.join(cmd)}\n")
 
          result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
          if result.returncode == 0:
@@ -1204,7 +1204,7 @@ class TreeSortRunner:
                   # Write the script's stdout to run_treesort.py's stdout.
                   sys.stdout.write(f"{line}\n")
          else:
-            sys.stderr.write(f"prepare_treesort_dataset failed with return code {result.returncode}:\n")
+            sys.stderr.write(f"prepare_treesort_dataset failed:\n")
 
             if result.stdout is not None:
                sys.stdout.write(result.stdout)
@@ -1285,7 +1285,7 @@ class TreeSortRunner:
             cmd.append(ScriptOption.EqualRates.value)
 
          # Print the treesort command line that will be run.
-         print(f"{' '.join(cmd)}\n")
+         sys.stdout.write(f"{' '.join(cmd)}\n")
 
          # Run the command
          result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1305,7 +1305,7 @@ class TreeSortRunner:
             sys.stdout.write(f"No output was provided")
 
          if cpe.stderr is not None:
-            sys.stderr.write(f"Errors:\n{cpe.stderr}")
+            sys.stderr.write(cpe.stderr)
          else:
             sys.stderr.write(f"No error information is available.")
             
@@ -1343,7 +1343,7 @@ def main(argv=None) -> bool:
     
    # Print the start time to stdout.
    main_start = datetime.now()
-   print(f"Started at {TreeSortRunner.format_datetime(main_start)}")
+   sys.stdout.write(f"Started at {TreeSortRunner.format_datetime(main_start)}")
    
    # Exclude the script name.
    if argv is None:
@@ -1416,7 +1416,7 @@ def main(argv=None) -> bool:
       sys.exit(-1)
 
    # Print the end time and total duration of prepare_dataset.
-   print(f"Finished prepare_dataset at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), pd_start)}")
+   sys.stdout.write(f"Finished prepare_dataset at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), pd_start)}")
 
    # Run TreeSort
    if not runner.tree_sort():
@@ -1443,7 +1443,7 @@ def main(argv=None) -> bool:
    runner.move_intermediate_files()
 
    # Print the end time and total duration of main.
-   print(f"Finished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), main_start)}")
+   sys.stdout.write(f"Finished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), main_start)}")
 
    return True
 
