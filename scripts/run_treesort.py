@@ -1048,31 +1048,38 @@ class TreeSortRunner:
          f"&limit({Constants.GENOME_API_LIMIT})"
       )
 
-      r = requests.get(url, timeout=60)
-      r.raise_for_status()
-
-      data = r.json()
       meta: Dict[str, Dict[str, str]] = {}
 
-      for rec in data:
-         gid = safe_trim(str(rec.get("genome_id", "")))
-         if not gid:
-            continue
+      try:
+         r = requests.get(url, timeout=60)
+         r.raise_for_status()
 
-         raw_segment = safe_trim(rec.get("segment"))
+         data = r.json()
+         
+         for rec in data:
+            gid = safe_trim(str(rec.get("genome_id", "")))
+            if not gid:
+               continue
 
-         # Convert numeric segment to canonical name
-         segment_name = Constants.SEGMENT_NUM_TO_NAME.get(
-            raw_segment,
-            raw_segment.upper()
-         )
+            raw_segment = safe_trim(rec.get("segment"))
 
-         meta[gid] = {
-            "strain": safe_trim(rec.get("strain")),
-            "subtype": safe_trim(rec.get("subtype")),
-            "segment": segment_name,
-            "collection_date": self.normalize_collection_date(rec.get("collection_date")),
-         }
+            # Convert numeric segment to canonical name
+            segment_name = Constants.SEGMENT_NUM_TO_NAME.get(
+               raw_segment,
+               raw_segment.upper()
+            )
+
+            meta[gid] = {
+               "strain": safe_trim(rec.get("strain")),
+               "subtype": safe_trim(rec.get("subtype")),
+               "segment": segment_name,
+               "collection_date": self.normalize_collection_date(rec.get("collection_date")),
+            }
+
+         sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genomes\n")
+
+      except Exception as e:
+         sys.stderr.write(f"An error occurred fetching genome metadata:\n {e}\n")
 
       return meta
 
@@ -1082,9 +1089,17 @@ class TreeSortRunner:
       Fetch in chunks to avoid enormous URL length (even if API limit is 25k).
       """
       all_meta: Dict[str, Dict[str, str]] = {}
-      for batch in self._chunked(genome_ids, Constants.GENOME_API_ID_CHUNK):
-         batch_meta = self.fetch_metadata_for_ids(batch)
-         all_meta.update(batch_meta)
+
+      try:
+         for batch in self._chunked(genome_ids, Constants.GENOME_API_ID_CHUNK):
+            batch_meta = self.fetch_metadata_for_ids(batch)
+            all_meta.update(batch_meta)
+      except Exception as e:
+         sys.stderr.write(f"Error fetching metadata for {len(genome_ids)} genome IDs:\n {e}\n")
+         return all_meta
+
+      sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genome(s)\n")
+
       return all_meta
 
 
@@ -1206,7 +1221,9 @@ class TreeSortRunner:
                )
                continue
 
+            assert strain is not None
             strain = strain.replace(" ", "_")
+            
             fasta_name = f"{strain}|{subtype}|{segment}|{date}"
             if fasta_name in seen_names:
                sys.stdout.write(f"IGNORING_DUPLICATE genome_id={gid} name='{fasta_name}'\n")
