@@ -1055,24 +1055,37 @@ class TreeSortRunner:
          r.raise_for_status()
 
          data = r.json()
-         
+
          for rec in data:
             gid = safe_trim(str(rec.get("genome_id", "")))
             if not gid:
                continue
 
-            raw_segment = safe_trim(rec.get("segment"))
+            # dmd 09/16/26 Segment could be a list of segment numbers.
+            segment_numbers = rec.get("segment")
+            if isinstance(segment_numbers, str):
+               segment_numbers = [segment_numbers]
 
-            # Convert numeric segment to canonical name
-            segment_name = Constants.SEGMENT_NUM_TO_NAME.get(
-               raw_segment,
-               raw_segment.upper()
-            )
+            # The segment numbers will be converted to names and added to this comma-delimited string.
+            segment_names = ""
+            
+            for segment_number in segment_numbers:
+               segment_number = safe_trim(segment_number)
+               if len(segment_number) < 1:
+                  continue
+
+               # Convert numeric segment to canonical name
+               segment_name = Constants.SEGMENT_NUM_TO_NAME.get(segment_number, "")
+               if len(segment_name) > 0:
+                  # Preface with a comma if the delimited list isn't empty.
+                  if len(segment_names) > 0:
+                     segment_names += ","
+                  segment_names += segment_name
 
             meta[gid] = {
                "strain": safe_trim(rec.get("strain")),
                "subtype": safe_trim(rec.get("subtype")),
-               "segment": segment_name,
+               "segment": segment_names,
                "collection_date": self.normalize_collection_date(rec.get("collection_date")),
             }
 
@@ -1223,7 +1236,7 @@ class TreeSortRunner:
 
             assert strain is not None
             strain = strain.replace(" ", "_")
-            
+
             fasta_name = f"{strain}|{subtype}|{segment}|{date}"
             if fasta_name in seen_names:
                sys.stdout.write(f"IGNORING_DUPLICATE genome_id={gid} name='{fasta_name}'\n")
