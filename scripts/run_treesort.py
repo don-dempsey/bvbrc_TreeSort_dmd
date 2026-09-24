@@ -248,9 +248,6 @@ class TreeSortRunner:
    # The base URL
    base_url: str
 
-   # Segments found in the input FASTA file.
-   fasta_segments: list[str]
-
    # the name of the directory containing the input FASTA file.
    input_directory: str
 
@@ -266,6 +263,9 @@ class TreeSortRunner:
    # A collection of result data to include in the analysis HTML file.
    results: Results
 
+   # Segments found in the input FASTA file.
+   segments: List[str]
+   
    # The directory where the scripts will be run.
    work_directory: str
 
@@ -284,7 +284,7 @@ class TreeSortRunner:
          raise ValueError("The work directory parameter is invalid")
       
       # Initialize member variables.
-      self.fasta_segments = []
+      self.segments = []
 
       # Determine the base URL.
       if "P3_BASE_URL" in os.environ:
@@ -301,7 +301,13 @@ class TreeSortRunner:
       # Validate the job data.
       if not TreeSortRunner.is_job_data_valid(self.job_data):
          raise ValueError("Job data in the constructor is invalid")
-      
+
+      # Populate the segments list from the segments string in the job data.
+      segments = map(str.strip, (self.job_data.segments or "").split(","))
+      if not bool(segments):
+         raise ValueError("No valid segments were provided")
+      self.segments = [segment for segment in segments if segment]
+
       # Initialize the results object.
       self.results = Results()
 
@@ -1116,16 +1122,17 @@ class TreeSortRunner:
       return all_meta
 
 
-   def filter_ids_by_segments(self, genome_ids: List[str], meta: Dict[str, Dict[str, str]]) -> List[str]:
+   def filter_ids_by_segments(self, allowed_segments: List[str], genome_ids: List[str], meta: Dict[str, Dict[str, str]]) -> List[str]:
       """
-      Keep only genomes whose metadata.segment is in job_data.segments.
+      Keep only genomes whose metadata.segment is in allowed_segments.
       """
-      segments = safe_trim(self.job_data.segments)
-      if len(segments) < 1:
+      if allowed_segments is None or len(allowed_segments) < 1:
          # If empty means "all segments" in TreeSort, then don't filter.
          return genome_ids
 
-      allowed = {safe_trim(s).upper() for s in segments.split(",") if safe_trim(s)}
+      # TEST
+      sys.stdout.write(f"allowed segments = {str(allowed_segments)}\n")
+
       kept: List[str] = []
 
       for gid in genome_ids:
@@ -1135,7 +1142,9 @@ class TreeSortRunner:
 
          segment = safe_trim(m.get("segment")).upper()
 
-         if segment in allowed:
+         sys.stdout.write(f"Trying segment {segment}\n")
+         
+         if segment in allowed_segments:
             kept.append(gid)
 
       return kept
@@ -1173,7 +1182,7 @@ class TreeSortRunner:
       return "\n".join(out_lines).rstrip() + "\n"
 
 
-   def build_input_fasta_from_group(self, group_path: str, out_fasta_path: str) -> None:
+   def build_input_fasta_from_group(self, allowed_segments: List[str], group_path: str, out_fasta_path: str) -> None:
       """
       Full pipeline:
         1) genome IDs from group
@@ -1194,7 +1203,7 @@ class TreeSortRunner:
       meta = self.fetch_all_metadata(genome_ids)
       sys.stdout.write(f"Metadata records fetched: {len(meta)}\n")
 
-      filtered = self.filter_ids_by_segments(genome_ids, meta)
+      filtered = self.filter_ids_by_segments(allowed_segments, genome_ids, meta)
       sys.stdout.write(f"Genome IDs after segment filter: {len(filtered)}\n")
 
       if not filtered:
@@ -1287,7 +1296,7 @@ class TreeSortRunner:
                raise ValueError("Invalid input genome group id/path")
 
             # Build input.fasta from the genome group (downloads + rewrites headers)
-            self.build_input_fasta_from_group(group_path, self.input_filename)
+            self.build_input_fasta_from_group(self.segments, group_path, self.input_filename)
 
          elif input_source == InputSource.FastaExistingDataset.value:
 
