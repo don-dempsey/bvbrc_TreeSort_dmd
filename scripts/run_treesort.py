@@ -49,6 +49,9 @@ class Constants:
    # The default name of the input FASTA file.
    INPUT_FASTA_FILE_NAME = "input.fasta"
 
+   # The minimum number of genomes required for analysis.
+   MIN_GENOMES = 10
+
    # The name of the subdirectory created in the working directory to hold intermediate files.
    OUTPUT_SUBDIRECTORY_NAME = "files"
 
@@ -113,7 +116,7 @@ class PHYLOXML_REGEX:
       re.IGNORECASE | re.DOTALL
    )
    REASSORTED = re.compile(r",?is_reassorted=(?P<reassorted>[01])")
-   SEGMENT_AND_DIST = re.compile(r"(rea=)?,?(?P<segment>\b\??[A-Za-z0-9]{1,3})\((?P<distance>\d+)\)", re.DOTALL)
+   SEGMENT_AND_DIST = re.compile(r"(rea=)?,?(?P<segment>\??[A-Za-z0-9]{1,3})\((?P<distance>\d+)\)", re.DOTALL)
 
 
 
@@ -157,10 +160,10 @@ class ScriptOption(str, Enum):
    Deviation = "--dev"
    EqualRates = "--equal-rates"
    FastTree = "--fast"
+   InferenceMethod = "-m"
    MatchOnEPI = "--match-on-epi"
    MatchOnRegex = "--match-on-regex"
    MatchOnStrain = "--match-on-strain"
-   Method = "-m"
    NoCollapse = "--no-collapse"
    OutputFilename = "-o"
    PValue = "--pvalue"
@@ -189,6 +192,42 @@ def safe_trim(text: Optional[str]):
 #-----------------------------------------------------------------------------------------------------------------------------
 # Classes
 #-----------------------------------------------------------------------------------------------------------------------------
+
+class GenomeMetadata:
+   collection_date: str
+   genome_id: str
+   segments: list[str]
+   strain: str
+   subtype: str
+   
+   def __init__(self, collection_date: str, genome_id: str, segments: list[str], strain: str, subtype: str):
+
+      self.genome_id = safe_trim(genome_id)
+      if self.genome_id is None or len(self.genome_id) < 1:
+         raise ValueError(f"Invalid genome ID in GenomeMetadata")
+
+      collection_date = safe_trim(collection_date)
+      if collection_date is None or len(collection_date) < 1:
+         raise ValueError(f"Empty collection date in genome {self.genome_id}")
+      
+      self.collection_date = TreeSortRunner.normalize_collection_date(collection_date)
+      if self.collection_date == "0000-00-00":
+         raise ValueError(f"Invalid collection date \"0000-00-00\" in genome {self.genome_id}")
+
+      self.strain = safe_trim(strain)
+      if self.strain is None or len(self.strain) < 1:
+         raise ValueError(f"Invalid strain for genome {self.genome_id}")
+      
+      self.subtype = safe_trim(subtype)
+      if self.subtype is None or len(self.subtype) < 1:
+         raise ValueError(f"Invalid subtype for genome {self.genome_id}")
+
+      if segments is None or len(segments) < 1:
+         raise ValueError(f"Invalid segments for genome {genome_id}")
+
+      # Convert segment numbers to names.
+      self.segments = TreeSortRunner.convert_segment_numbers_to_names(segments)
+
 
 # The contents of the jobdesc.json file.
 @dataclass
@@ -234,6 +273,7 @@ class Results:
 
    # C-tor
    def __init__(self):
+      self.current_segment = None
       self.json = ""
       self.reassortments = 0
       self.segment_data = {}
@@ -295,8 +335,11 @@ class TreeSortRunner:
       # Validate the job data.
       if not job_data:
          raise ValueError("A job data parameter was not provided")
-      
+
       self.job_data = job_data
+
+      # Trim the segment list string and make them uppercase.
+      self.job_data.segments = safe_trim(self.job_data.segments).upper()
 
       # Validate the job data.
       if not TreeSortRunner.is_job_data_valid(self.job_data):
@@ -310,6 +353,89 @@ class TreeSortRunner:
 
       # Initialize the results object.
       self.results = Results()
+
+
+   def build_input_fasta_from_group(self, group_path: str, out_fasta_path: str) -> bool:
+      """
+      Building the input FASTA file from a genome group:
+         1) Get genome IDs from the genome group
+         2) Fetch metadata for each genome (chunked)
+         3) Download FASTA for each genome
+         4) Rewrite FASTA headers and validate the FASTA content
+         5) Write the FASTA file to out_fasta_path
+      """
+      sys.stdout.write(f"\nBuilding input FASTA from genome group: {group_path}\n")
+
+      genome_ids = self.get_genome_ids_from_group(group_path)
+      if genome_ids is None or len(genome_ids) < 1:
+         return False
+      sys.stdout.write(f"Genome IDs found in group: {len(genome_ids)}\n")
+
+      meta = self.fetch_all_metadata(genome_ids)
+      sys.stdout.write(f"Metadata records fetched: {len(meta)}\n")
+
+      valid_genomes = 0
+
+      # Create and write sequences to the FASTA file.
+      with open(out_fasta_path, "w", encoding="utf-8") as fout:
+         for genome_id in genome_ids:
+
+            # DEBUG
+            sys.stdout.write(f"Genome {genome_id}\n")
+
+            try:
+               # Get the genome metadata for this genome ID.
+               genome = meta.get(genome_id)
+               if not genome:
+                  sys.stdout.write(f"SKIP_MISSING_METADATA genome_id={genome_id}\n")
+                  continue
+
+               fasta = self.download_genome_fasta(genome_id)
+               if not fasta or len(safe_trim(fasta)) == 0:
+                  sys.stdout.write(f"SKIP_EMPTY_FASTA genome_id={genome_id}\n")
+                  continue
+
+               # Reformat the FASTA headers and validate the sequences.
+               new_fasta = self.process_genome_fasta(fasta, genome)
+
+               if len(new_fasta) > 0:
+
+                  # Write the FASTA to the file.
+                  fout.write(new_fasta)
+
+                  valid_genomes += 1
+
+            except Exception as e:
+               sys.stderr.write(f"Error in genome {genome_id}:\n {str(e)}")
+
+      if valid_genomes < Constants.MIN_GENOMES:
+         sys.stderr.write(f"At least {Constants.MIN_GENOMES} genomes are required for analysis but only {valid_genomes} were provided")
+         return False
+      
+      sys.stdout.write(f"The input FASTA file was created from the genome group ({out_fasta_path})\n")
+      return True
+
+   def _chunked(self, items: List[str], n: int) -> Iterable[List[str]]:
+      for i in range(0, len(items), n):
+         yield items[i:i+n]
+
+
+   @staticmethod
+   def convert_segment_numbers_to_names(segment_numbers: list[str]):
+      """ Convert a list of numeric segments to segment names. """
+      segment_names = []
+      
+      for segment_number in segment_numbers:
+         segment_number = safe_trim(segment_number)
+         if len(segment_number) < 1:
+            continue
+
+         # Convert numeric segment to canonical name
+         segment_name = Constants.SEGMENT_NUM_TO_NAME.get(segment_number, "")
+         if len(segment_name) > 0:
+            segment_names.append(segment_name)
+
+      return segment_names
 
 
    # Parse the annotated tree file for reassorted strains and create "reassortments.csv".
@@ -360,9 +486,9 @@ class TreeSortRunner:
          print(f"{' '.join(cmd)}\n")
 
          # Run the command
-         cmd_result = subprocess.call(cmd, shell=False)
+         cmd_result = subprocess.run(cmd, shell=False, check=True)
 
-         if cmd_result > 0 or not os.path.exists(csv_file_path):
+         if cmd_result.returncode > 0 or not os.path.exists(csv_file_path):
             raise Exception(f"Forester was unable to generate the CSV file")
          
          # Open the CSV file
@@ -567,6 +693,7 @@ class TreeSortRunner:
 
       return True
 
+
    # Delete intermediate files that are not needed in the output.
    def delete_unnecessary_files(self) -> bool:
 
@@ -579,13 +706,45 @@ class TreeSortRunner:
          file_path = f"{self.work_directory}/{file}"
          if os.path.exists(file_path):
             try:
-               subprocess.call(["rm", file_path], shell=False)
+               subprocess.run(["rm", file_path], shell=False, check=True)
             except Exception as e:
                sys.stderr.write(f"Unable to delete file {file_path}:\n {e}\n")
 
       return True
    
 
+   def download_genome_fasta(self, genome_id: str) -> str|None:
+      """
+      Uses p3-genome-fasta <genome_id> to return FASTA for the specified genome.
+      """
+      result = None
+
+      try:
+         result = subprocess.run(
+            ["p3-genome-fasta", genome_id],
+            shell=False,
+            capture_output=True,
+            check=True,
+            text=True
+         )
+
+         if result is None:
+            raise Exception(f"Invalid result when downloading FASTA for genome {genome_id}\n")
+         if result.returncode != 0:
+            raise Exception(result.stderr)
+         
+      except subprocess.CalledProcessError as cpe:  
+         sys.stderr.write(f"Error downloading FASTA for genome {genome_id}:\n {cpe.stderr}\n")
+         return None
+      except Exception as e:
+         sys.stderr.write(f"Error downloading FASTA for genome {genome_id}:\n {str(e)}\n")
+
+      if result is None:
+         return None
+      
+      return result.stdout
+
+   
    # Create a PhyloXML version of the result tree.
    def export_tree_as_phyloxml(self) -> bool:
 
@@ -627,13 +786,16 @@ class TreeSortRunner:
          print(f"{' '.join(cmd)}\n")
 
          # Run the command
-         cmd_result = subprocess.call(cmd, shell=False)
+         cmd_result = subprocess.run(cmd, shell=False, check=True, capture_output=True)
 
-         if cmd_result > 0 or not os.path.exists(phyloxml_file_path):
+         if cmd_result.returncode > 0 or not os.path.exists(phyloxml_file_path):
             raise Exception(f"Forester was unable to export the PhyloXML file")
-         
+
+      except subprocess.CalledProcessError as cpe:  
+         sys.stderr.write(f"Error exporting tree as PhyloXML:\n {cpe.stderr}\n")
+         return False 
       except Exception as e:
-         sys.stderr.write(f"Error in export_tree_as_phyloxml:\n {e}\n")
+         sys.stderr.write(f"Error exporting tree as PhyloXML:\n {e}\n")
          return False
  
 
@@ -655,6 +817,112 @@ class TreeSortRunner:
          return False
  
       return result_status
+
+
+   def fetch_all_metadata(self, genome_ids: List[str]) -> Dict[str, GenomeMetadata]:
+      """
+      Fetch in chunks to avoid enormous URL length (even if API limit is 25k).
+      """
+      all_genomes: Dict[str, GenomeMetadata] = {}
+
+      try:
+         for batch in self._chunked(genome_ids, Constants.GENOME_API_ID_CHUNK):
+            batch_genomes = self.fetch_metadata_for_ids(batch)
+            all_genomes.update(batch_genomes)
+      except Exception as e:
+         sys.stderr.write(f"Error fetching metadata for {len(genome_ids)} genome IDs:\n {e}\n")
+         return all_genomes
+
+      sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genome(s)\n")
+
+      if len(all_genomes) < Constants.MIN_GENOMES:
+         raise Exception(f"At least {Constants.MIN_GENOMES} genomes are required for analysis and only {len(all_genomes)} valid genomes were included")
+               
+      return all_genomes
+
+
+   def fetch_metadata_for_ids(self, genome_ids: List[str]) -> Dict[str, GenomeMetadata]:
+      """
+      Calls:
+        /api/genome/?in(genome_id,(...))&select(genome_id,strain,subtype,segment,collection_date)&limit(25000)
+      Returns dict[genome_id] = {strain, subtype, segment, collection_date}
+      """
+      ids_csv = ",".join(genome_ids)
+
+      url = (
+         f"{Constants.GENOME_API}"
+         f"?in(genome_id,({ids_csv}))"
+         f"&select(genome_id,strain,subtype,segment,collection_date)"
+         f"&limit({Constants.GENOME_API_LIMIT})"
+      )
+
+      genomes: Dict[str, GenomeMetadata] = {}
+
+      try:
+         r = requests.get(url, timeout=60)
+         r.raise_for_status()
+
+         # Example JSON: [{"collection_date":"2011-03-21","strain":"D/swine/Oklahoma/1334/2011","segment":["1","2","3","4","5","6","7"],"genome_id":"1173138.25"}]
+         data = r.json()
+
+         # Iterate over all genome metadata in the JSON.
+         for rec in data:
+            try:
+               genome = GenomeMetadata(
+                  collection_date=rec.get("collection_date"),
+                  genome_id = str(rec.get("genome_id", "")),
+                  segments = rec.get("segment"),
+                  strain = rec.get("strain"),
+                  subtype = rec.get("subtype")
+               )
+
+               # Validate the genome metadata.
+               if not self.is_genome_metadata_valid(genome):
+                  continue
+
+               # Add the genome metadata to the dictionary that will be returned.
+               genomes[genome.genome_id] = genome
+
+            except Exception as e:
+               sys.stderr.write(str(e))
+               continue
+            
+            """
+            # dmd 09/16/26 Segment is a list of segment numbers.
+            segment_numbers = rec.get("segment")
+            if isinstance(segment_numbers, str):
+               # This will probably never be reached, but just in case...
+               segment_numbers = [segment_numbers]
+
+            # The segment numbers will be converted to names and added to this comma-delimited string.
+            segment_names = ""
+            
+            for segment_number in segment_numbers:
+               segment_number = safe_trim(segment_number)
+               if len(segment_number) < 1:
+                  continue
+
+               # Convert numeric segment to canonical name
+               segment_name = Constants.SEGMENT_NUM_TO_NAME.get(segment_number, "")
+               if len(segment_name) > 0:
+                  # Preface with a comma if the delimited list isn't empty.
+                  if len(segment_names) > 0:
+                     segment_names += ","
+                  segment_names += segment_name
+
+            meta[gid] = {
+               "strain": safe_trim(rec.get("strain")),
+               "subtype": safe_trim(rec.get("subtype")),
+               "segment": segment_names,
+               "collection_date": self.normalize_collection_date(rec.get("collection_date")),
+            }"""
+
+         sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genomes\n")
+
+      except Exception as e:
+         sys.stderr.write(f"An error occurred fetching genome metadata:\n {e}\n")
+
+      return genomes
 
 
    # Format a datetime for the start and end times of program execution.
@@ -684,6 +952,7 @@ class TreeSortRunner:
  
 
    # Format the Results object's data as HTML.
+   # TODO: That's not what this is doing. What is its purpose?!?
    def format_results(self):
 
       if not self.results:
@@ -701,41 +970,20 @@ class TreeSortRunner:
       self.process_treetime_stdout_files()
 
       # Generate JSON for segment_data in the results object.
-      segments_json = ""
+      segments = {}
 
       # Generate JSON for the segment data.
       for segment in self.results.segment_data.keys():
 
          # JSON for this segment's data.
-         segment_json = ""
+         segments[segment] = self.results.segment_data[segment]
 
-         segment_lines = self.results.segment_data[segment]
-         if segment_lines and len(segment_lines) > 0:
-            
-            for line in segment_lines:
+      results_json = {
+         "segments": segments,
+         "summary": self.results.treesort_list
+      }
 
-               if len(segment_json) > 0:
-                  segment_json += ","
-
-               segment_json += f"\"{line}\""
-
-            if len(segments_json) > 0:
-               segments_json += ","
-
-            segments_json += f"\"{segment}\":[{segment_json}]"
-         
-      # Generate a JSON array for the treesort list.
-      summary_array = ""
-      if self.results.treesort_list:
-         for line in self.results.treesort_list:
-            if len(summary_array) > 0:
-               summary_array += ","
-            summary_array += f"\"{line}\""
-
-      # Assemble the components as JSON.
-      self.results.json = f"{{\"segments\":{{{segments_json}}}, \"summary\":[{summary_array}]}}"
-
-      # TESTING
+      self.results.json = json.dumps(results_json)
       sys.stdout.write(f"\n\n{self.results.json}\n\n")
 
       
@@ -779,6 +1027,65 @@ class TreeSortRunner:
       return result_date
    
 
+   def get_genome_ids_from_group(self, group_path: str) -> List[str]|None:
+      """
+      Uses p3-get-genome-group "<workspace path>" and extracts genome_ids like 11320.471792
+      """
+      try:
+         result = subprocess.run(
+            ["p3-get-genome-group", group_path],
+            shell=False,
+            capture_output=True,
+            check=True,
+            text=True
+         )
+         if result.returncode != 0:
+            raise Exception(result.stderr)
+
+         ids: List[str] = []
+         for line in result.stdout.splitlines():
+            line = safe_trim(line)
+            if re.fullmatch(r"\d+\.\d+", line):
+               ids.append(line)
+
+         if not ids:
+            raise ValueError(f"No genome IDs found in genome group: {group_path}")
+
+         return ids
+
+      except subprocess.CalledProcessError as cpe:  
+         sys.stderr.write(f"Error reading genome group:\n {cpe.stderr}\n")
+         return None
+      except Exception as e:
+         sys.stderr.write(f"Error reading genome group:\n {e}")
+         return None
+
+
+   def is_genome_metadata_valid(self, genome: GenomeMetadata) -> bool:
+      """ Evaluate the segment information in the genome metadta. """
+      if genome is None:
+         sys.stderr.write("Invalid genome")
+         return False
+
+      # Does the genome have the reference segment?
+      if not self.job_data.ref_segment in genome.segments:
+         sys.stderr.write(f"Genome {genome.genome_id} doesn't have the reference segment {self.job_data.ref_segment}")
+         return False
+
+      valid_segments = 0
+
+      # Does it have at least one of the requested segments (other than the ref segment)?
+      for segment in genome.segments:
+         if segment in self.segments:
+            valid_segments += 1
+
+      if valid_segments < 2:
+         sys.stderr.write(f"Genome {genome.genome_id} doesn't have enough segments for analysis")
+         return False
+
+      return True
+   
+
    # Is the JobData instance valid?
    @staticmethod
    def is_job_data_valid(job_data: JobData) -> bool:
@@ -813,12 +1120,12 @@ class TreeSortRunner:
          job_data.output_file = os.path.splitext(job_data.output_file)[0]
 
          # Validate the reference segment and provide a default if not provided.
-         refSegment = safe_trim(job_data.ref_segment)
-         if not refSegment:
-            refSegment = Constants.DEFAULT_REF_SEGMENT
+         job_data.ref_segment = safe_trim(job_data.ref_segment)
+         if not job_data.ref_segment:
+            job_data.ref_segment = Constants.DEFAULT_REF_SEGMENT
 
-         elif not refSegment in Constants.VALID_SEGMENTS:
-            raise ValueError(f"Invalid reference segment: {refSegment}")
+         elif not job_data.ref_segment in Constants.VALID_SEGMENTS:
+            raise ValueError(f"Invalid reference segment: {job_data.ref_segment}")
 
          # Reference tree inference
          if not job_data.ref_tree_inference:
@@ -857,6 +1164,7 @@ class TreeSortRunner:
 
          # These files won't be moved to the output subdirectory.
          files_to_exclude = [
+            Constants.OUTPUT_SUBDIRECTORY_NAME,
             Constants.SUMMARY_FILENAME, 
             Constants.REASSORTMENTS_FILE_NAME, 
             output_tree_file, 
@@ -867,8 +1175,11 @@ class TreeSortRunner:
          for item in os.listdir(self.work_directory):
             item_path = os.path.join(self.work_directory, item)
             if item not in files_to_exclude and os.path.exists(item_path):
-               subprocess.call(["mv", item_path, output_subdir], shell=False)
+               subprocess.run(["mv", item_path, output_subdir], shell=False, check=True, capture_output=True)
 
+      except subprocess.CalledProcessError as cpe:  
+         sys.stderr.write(f"Error moving intermediate files:\n {cpe.stderr}\n")
+         return False
       except Exception as e:
          sys.stderr.write(f"Error moving intermediate files:\n {e}\n")
          return False
@@ -876,6 +1187,27 @@ class TreeSortRunner:
       return True
 
 
+   @staticmethod
+   def normalize_collection_date(date_str: Optional[str]) -> str:
+      """
+      Normalize to YYYY-MM-DD:
+         YYYY -> YYYY-01-01
+         YYYY-MM -> YYYY-MM-01
+         YYYY-MM-DD -> as-is
+      Otherwise -> 0000-00-00
+      """
+      s = safe_trim(date_str)
+      if not s:
+         return "0000-00-00"
+      if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+         return s
+      if re.fullmatch(r"\d{4}-\d{2}", s):
+         return f"{s}-01"
+      if re.fullmatch(r"\d{4}", s):
+         return f"{s}-01-01"
+      return "0000-00-00"
+
+   
    # Parse a line from TreeSort's stdout to look for important info.
    def parse_treesort_stdout_line(self, line: str):
 
@@ -899,19 +1231,21 @@ class TreeSortRunner:
       # Look for segment-specific reassortment events.
       match = re.search(r'Inferred reassortment events with ([A-Za-z0-9]+):\s*(\d+)', line)
       if match:
-         segment_name = match.group(1)
+         segment_name = safe_trim(match.group(1)).upper()
          event_count = match.group(2)
 
-         # TODO: Make sure this is a valid segment name.
-         current_segment = segment_name
-
          # Update the segment data dictionary.
-         if current_segment not in self.results.segment_data:
-            self.results.segment_data[current_segment] = []
-         self.results.segment_data[current_segment].append(f"Inferred reassortment events: {event_count}")
-         return
+         if segment_name not in self.results.segment_data:
+            self.results.segment_data[segment_name] = []
+
+         self.results.segment_data[segment_name].append(f"Inferred reassortment events: {event_count}")
+
+         self.results.current_segment = segment_name
+
+         # TODO: why was I returning from here?
+         #return
       
-      match = re.search(r'/Identified exact branches for (\d+)\/\d+ of them/gm', line)
+      match = re.search(r"Identified exact branches for (\d+)/\d+ of them", line)
       if match and self.results.current_segment:
 
          exact_branches = match.group(1)
@@ -920,6 +1254,7 @@ class TreeSortRunner:
 
          if current_segment not in self.results.segment_data:
             self.results.segment_data[current_segment] = []
+
          self.results.segment_data[current_segment].append(f"Identified exact branches for {exact_branches} of the events")
 
          # Re-initialize the current segment.
@@ -955,11 +1290,11 @@ class TreeSortRunner:
          self.results.segment_data[segment_name].append(f"Fraction of variation in root-to-tip distance: {r_2}")
          return
       
-      """
+      r"""
       TODO: Make sure this works correctly and then re-add it.
       
       # Root date
-      match = re.search(r"\S*\-\-\-\s*root\-date:\s*(\d+\.\d+)", line)
+      #match = re.search(r"\S*---\s*root-date:\s*(\d+\.\d+)", line)
       if match:
          decimal_date = match.group(1)
 
@@ -985,153 +1320,16 @@ class TreeSortRunner:
       return
    
 
-   def _chunked(self, items: List[str], n: int) -> Iterable[List[str]]:
-      for i in range(0, len(items), n):
-         yield items[i:i+n]
-
-
-   def get_genome_ids_from_group(self, group_path: str) -> List[str]:
-      """
-      Uses p3-get-genome-group "<workspace path>" and extracts genome_ids like 11320.471792
-      """
-      try:
-         result = subprocess.run(
-            ["p3-get-genome-group", group_path],
-            shell=False,
-            capture_output=True,
-            text=True
-         )
-         if result.returncode != 0:
-            raise Exception(result.stderr)
-
-         ids: List[str] = []
-         for line in result.stdout.splitlines():
-            line = safe_trim(line)
-            if re.fullmatch(r"\d+\.\d+", line):
-               ids.append(line)
-
-         if not ids:
-            raise ValueError(f"No genome IDs found in genome group: {group_path}")
-
-         return ids
-
-      except Exception as e:
-         raise Exception(f"Error reading genome group:\n {e}")
-
-
-   def normalize_collection_date(self, date_str: Optional[str]) -> str:
-      """
-      Normalize to YYYY-MM-DD:
-        YYYY -> YYYY-01-01
-        YYYY-MM -> YYYY-MM-01
-        YYYY-MM-DD -> as-is
-      Otherwise -> 0000-00-00
-      """
-      s = safe_trim(date_str)
-      if not s:
-         return "0000-00-00"
-      if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-         return s
-      if re.fullmatch(r"\d{4}-\d{2}", s):
-         return f"{s}-01"
-      if re.fullmatch(r"\d{4}", s):
-         return f"{s}-01-01"
-      return "0000-00-00"
-
-
-   def fetch_metadata_for_ids(self, genome_ids: List[str]) -> Dict[str, Dict[str, str]]:
-      """
-      Calls:
-        /api/genome/?in(genome_id,(...))&select(genome_id,strain,subtype,segment,collection_date)&limit(25000)
-      Returns dict[genome_id] = {strain, subtype, segment, collection_date}
-      """
-      ids_csv = ",".join(genome_ids)
-
-      url = (
-         f"{Constants.GENOME_API}"
-         f"?in(genome_id,({ids_csv}))"
-         f"&select(genome_id,strain,subtype,segment,collection_date)"
-         f"&limit({Constants.GENOME_API_LIMIT})"
-      )
-
-      meta: Dict[str, Dict[str, str]] = {}
-
-      try:
-         r = requests.get(url, timeout=60)
-         r.raise_for_status()
-
-         data = r.json()
-
-         for rec in data:
-            gid = safe_trim(str(rec.get("genome_id", "")))
-            if not gid:
-               continue
-
-            # dmd 09/16/26 Segment could be a list of segment numbers.
-            segment_numbers = rec.get("segment")
-            if isinstance(segment_numbers, str):
-               segment_numbers = [segment_numbers]
-
-            # The segment numbers will be converted to names and added to this comma-delimited string.
-            segment_names = ""
-            
-            for segment_number in segment_numbers:
-               segment_number = safe_trim(segment_number)
-               if len(segment_number) < 1:
-                  continue
-
-               # Convert numeric segment to canonical name
-               segment_name = Constants.SEGMENT_NUM_TO_NAME.get(segment_number, "")
-               if len(segment_name) > 0:
-                  # Preface with a comma if the delimited list isn't empty.
-                  if len(segment_names) > 0:
-                     segment_names += ","
-                  segment_names += segment_name
-
-            meta[gid] = {
-               "strain": safe_trim(rec.get("strain")),
-               "subtype": safe_trim(rec.get("subtype")),
-               "segment": segment_names,
-               "collection_date": self.normalize_collection_date(rec.get("collection_date")),
-            }
-
-         sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genomes\n")
-
-      except Exception as e:
-         sys.stderr.write(f"An error occurred fetching genome metadata:\n {e}\n")
-
-      return meta
-
-
-   def fetch_all_metadata(self, genome_ids: List[str]) -> Dict[str, Dict[str, str]]:
-      """
-      Fetch in chunks to avoid enormous URL length (even if API limit is 25k).
-      """
-      all_meta: Dict[str, Dict[str, str]] = {}
-
-      try:
-         for batch in self._chunked(genome_ids, Constants.GENOME_API_ID_CHUNK):
-            batch_meta = self.fetch_metadata_for_ids(batch)
-            all_meta.update(batch_meta)
-      except Exception as e:
-         sys.stderr.write(f"Error fetching metadata for {len(genome_ids)} genome IDs:\n {e}\n")
-         return all_meta
-
-      sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genome(s)\n")
-
-      return all_meta
-
-
-   def filter_ids_by_segments(self, allowed_segments: List[str], genome_ids: List[str], meta: Dict[str, Dict[str, str]]) -> List[str]:
-      """
-      Keep only genomes whose metadata.segment is in allowed_segments.
-      """
-      if allowed_segments is None or len(allowed_segments) < 1:
+   """def filter_ids_by_segments(self, genome_ids: List[str], meta: Dict[str, Dict[str, str]]) -> List[str]:
+      ""
+      Keep only genomes whose metadata.segment(s) are in requested_segments.
+      ""
+      if requested_segments is None or len(requested_segments) < 1:
          # If empty means "all segments" in TreeSort, then don't filter.
          return genome_ids
 
       # TEST
-      sys.stdout.write(f"allowed segments = {str(allowed_segments)}\n")
+      sys.stdout.write(f"requested_segments = {str(requested_segments)}\n")
 
       kept: List[str] = []
 
@@ -1140,128 +1338,23 @@ class TreeSortRunner:
          if not m:
             continue
 
-         segment = safe_trim(m.get("segment")).upper()
+         segments = safe_trim(m.get("segment"))
+         if segments is None:
+            continue
 
-         sys.stdout.write(f"Trying segment {segment}\n")
-         
-         if segment in allowed_segments:
-            kept.append(gid)
+         # Remove whitespace and convert to uppercase.
+         segments = segments.replace(" ", "").upper()
 
-      return kept
+         sys.stdout.write(f"genome segments: {segments}\n")
 
+         segment_list = segments.split(",")
+         if not set(segment_list).issubset(set(requested_segments)):
+            # TODO: We could gracefully handle this by filtering the genome's FASTA later on.
+            continue
 
-   def download_genome_fasta(self, genome_id: str) -> str:
-      """
-      Uses p3-genome-fasta <genome_id>
-      """
-      result = subprocess.run(
-         ["p3-genome-fasta", genome_id],
-         shell=False,
-         capture_output=True,
-         text=True
-      )
-      if result.returncode != 0:
-         raise Exception(result.stderr)
-      return result.stdout
+         kept.append(gid)
 
-
-   def rewrite_fasta_headers(self, fasta_text: str, fasta_name: str) -> str:
-      """
-      Rewrite header lines to:
-        >STRAIN|SUBTYPE|SEGMENT|YYYY-MM-DD
-      """
-      new_header = f">{fasta_name}"
-
-      out_lines = []
-      for line in fasta_text.splitlines():
-         if line.startswith(">"):
-            out_lines.append(new_header)
-         else:
-            out_lines.append(line.rstrip())
-
-      return "\n".join(out_lines).rstrip() + "\n"
-
-
-   def build_input_fasta_from_group(self, allowed_segments: List[str], group_path: str, out_fasta_path: str) -> None:
-      """
-      Full pipeline:
-        1) genome IDs from group
-        2) metadata fetch (chunked)
-        3) filter by job_data.segments
-        4) download fasta per genome
-        5) rewrite headers + concatenate -> out_fasta_path
-
-      Extra:
-        - de-duplicate by FASTA name (strain|subtype|segment|YYYY-MM-DD)
-        - log duplicates / missing metadata / download failures
-      """
-      sys.stdout.write(f"\nBuilding input FASTA from genome group: {group_path}\n")
-
-      genome_ids = self.get_genome_ids_from_group(group_path)
-      sys.stdout.write(f"Genome IDs found in group: {len(genome_ids)}\n")
-
-      meta = self.fetch_all_metadata(genome_ids)
-      sys.stdout.write(f"Metadata records fetched: {len(meta)}\n")
-
-      filtered = self.filter_ids_by_segments(allowed_segments, genome_ids, meta)
-      sys.stdout.write(f"Genome IDs after segment filter: {len(filtered)}\n")
-
-      if not filtered:
-         raise ValueError("No genomes remained after segment filtering")
-
-      # Track duplicates by the exact sequence ID TreeSort/alignment will see.
-      seen_names: set[str] = set()
-      with open(out_fasta_path, "w", encoding="utf-8") as fout:
-         for gid in filtered:
-            m = meta.get(gid)
-
-            if not m:
-               sys.stdout.write(f"SKIP_MISSING_METADATA genome_id={gid}\n")
-               continue
-
-            strain = m.get("strain")
-            subtype = m.get("subtype")
-            segment = m.get("segment")
-            date = m.get("collection_date")
-
-            # Enforce required fields
-            missing_fields = []
-
-            if not strain:
-               missing_fields.append("strain")
-            if not subtype:
-               missing_fields.append("subtype")
-            if not segment:
-               missing_fields.append("segment")
-            if not date or date == "0000-00-00":
-               missing_fields.append("collection_date")
-
-            if missing_fields:
-               sys.stdout.write(
-                  f"SKIP_MISSING_REQUIRED genome_id={gid} "
-                  f"missing={','.join(missing_fields)}\n"
-               )
-               continue
-
-            assert strain is not None
-            strain = strain.replace(" ", "_")
-
-            fasta_name = f"{strain}|{subtype}|{segment}|{date}"
-            if fasta_name in seen_names:
-               sys.stdout.write(f"IGNORING_DUPLICATE genome_id={gid} name='{fasta_name}'\n")
-               continue
-
-            fasta = self.download_genome_fasta(gid)
-            if not fasta or len(safe_trim(fasta)) == 0:
-               sys.stdout.write(f"SKIP_EMPTY_FASTA genome_id={gid} name='{fasta_name}'\n")
-               continue
-
-            rewritten = self.rewrite_fasta_headers(fasta, fasta_name)
-            fout.write(rewritten)
-
-            seen_names.add(fasta_name)
-
-      sys.stdout.write(f"Combined FASTA written: {out_fasta_path}\n")
+      return kept"""
 
 
    # Determine the source of the FASTA input file and prepare it for use.
@@ -1281,22 +1374,26 @@ class TreeSortRunner:
             try:
                # Copy the input file from the workspace to the working directory.
                fetch_fasta_cmd = ["p3-cp", f"ws:{self.job_data.input_fasta_file_id}", self.input_filename]
-               subprocess.call(fetch_fasta_cmd, shell=False)
+               subprocess.run(fetch_fasta_cmd, shell=False, capture_output=True, check=True)
 
+            except subprocess.CalledProcessError as cpe:  
+               sys.stderr.write(f"Error copying FASTA from workspace:\n {cpe.stderr}\n")
+               return False
             except Exception as e:
                raise IOError("Error copying FASTA file from workspace:\n %s" % str(e))
 
          elif input_source == InputSource.FastaGroupID.value:
 
-            # Create the input filename, including its full path.
+            # Create the input filename
             self.input_filename = f"{self.input_directory}/{Constants.INPUT_FASTA_FILE_NAME}"
 
             group_path = safe_trim(self.job_data.input_fasta_group_id)
             if len(group_path) < 1:
                raise ValueError("Invalid input genome group id/path")
 
-            # Build input.fasta from the genome group (downloads + rewrites headers)
-            self.build_input_fasta_from_group(self.segments, group_path, self.input_filename)
+            # Build input.fasta from the genome group (downloads genome FASTA + rewrites headers)
+            if not self.build_input_fasta_from_group(group_path, self.input_filename):
+               raise Exception("Unable to build input FASTA from genome group")
 
          elif input_source == InputSource.FastaExistingDataset.value:
 
@@ -1330,6 +1427,9 @@ class TreeSortRunner:
          # TODO: This is a good place to validate the input FASTA file. Currently, the 
          # FASTA header requires the segment name/abbreviation surrounded by |'s and a date at the end.
 
+      except subprocess.CalledProcessError as cpe:  
+         sys.stderr.write(f"Error processing input file:\n {cpe.stderr}\n")
+         return False
       except Exception as e:
          sys.stderr.write(f"Error processing input file:\n {e}\n")
          return False
@@ -1337,41 +1437,120 @@ class TreeSortRunner:
       return True
 
 
+   def process_genome_fasta(self, fasta_text: str, genome: GenomeMetadata) -> str:
+      """
+      Iterate over every sequence, reformatting header lines as ">STRAIN|SUBTYPE|SEGMENT|YYYY-MM-DD", only
+      include sequences for requested segments, and make sure a sequence for the reference segment exists.
+      """
+
+      found_segments: list[str] = []
+
+      segment_name = None
+      skip_sequence = False
+
+      output_fasta = []
+
+      for line in fasta_text.splitlines(keepends=True):
+
+         # Is this is a header line?
+         if line.startswith(">"):
+
+            # Example FASTA header in the input: "">1173138.25.con.0006 segment"
+            match = re.search(r'\.([^.\s]+)\s+segment', line)
+            if not match:
+               sys.stderr.write(f"Invalid FASTA header format for genome {genome.genome_id}: {line}")
+               skip_sequence = True
+               continue
+            
+            # Get the segment number from the header
+            segment_num_str = match.group(1)
+
+            # Convert to an int to get rid of zero-padding on the left side.
+            segment_num = int(segment_num_str)
+
+            # Convert numeric segment to canonical name
+            segment_name = Constants.SEGMENT_NUM_TO_NAME.get(str(segment_num)) or ""
+
+            if segment_name not in self.segments:
+               sys.stderr.write(f"Skipping the sequence for segment {segment_name} in genome {genome.genome_id}")
+               skip_sequence = True
+               continue
+
+            if segment_name in found_segments:
+               sys.stderr.write(f"Duplicate sequence found for segment {segment_name} in genome {genome.genome_id}")
+               skip_sequence = True
+               continue
+
+            found_segments.append(segment_name)
+
+            # Don't skip the following lines of bases.
+            skip_sequence = False
+            
+            # Replace the FASTA header
+            strain = genome.strain.replace(" ", "_")
+            output_fasta.append(f">{strain}|{genome.subtype}|{segment_name}|{genome.collection_date}\n")
+
+         elif not skip_sequence:
+            # Sequence data
+            output_fasta.append(line)
+
+      # Did we find enough segments?
+      if len(found_segments) < 2:
+         sys.stderr.write(f"Excluding FASTA for genome {genome.genome_id}: Not enough segments for analysis ({len(found_segments)})")
+         return ""
+
+      # Did we find the reference segment?
+      if self.job_data.ref_segment not in found_segments:
+         sys.stderr.write(f"Excluding FASTA for genome {genome.genome_id}: No sequence found for reference segment ({self.job_data.ref_segment})")
+         return ""
+
+      return "".join(output_fasta)
+   
+
    def process_phyloxml_clade(self, m: re.Match):
+
+      # empty_clade = "<clade>"
 
       clade: str | None = m.group("clade")
       if not clade:
-         return ""
+         return "<clade>"
       
       branch = ""
       is_reassorted = False
       is_tsnode = False
+      is_uncertain = False
       name = ""
-      properties = ""
+      properties = []
       property = ""
+      ts_node_name = ""
 
-      # "Segments" will replace TS_NODE_* names.
-      segments = ""
+      # All reassorted segment inferences found in the clade XML.
+      segments = []
+
+      # A comma-delimited list of segment(distance).
+      segments_label = ""
 
       # Get the name element
       name_match = PHYLOXML_REGEX.NAME.search(clade)
       if not name_match:
-         print(f"No name match for {clade}\n")
-         return ""
+         sys.stderr.write(f"Error in process_phyloxml_clade: No name match for {clade}\n")
+         return clade
       
       name = name_match.group("name")
       if not name:
-         print(f"Name is empty\n")
-         return ""
-      else:
-         name = name.strip()
+         sys.stderr.write(f"Error in process_phyloxml_clade: Name is empty\n")
+         return clade
+
+      name = name.strip()
 
       # Is this a TS_NODE_* node?
       if name.startswith("TS_NODE_"):
          is_tsnode = True
 
-         # Add the TS_NODE_ID as a property and then clear the name.
-         properties += f'<property ref="{PHYLOXML_PROPERTY_REF.nodeID}" datatype="xsd:string" applies_to="node">{name}</property>'
+         # Populate the TS_node name
+         ts_node_name = str(name)
+
+         # Clear the name
          name = ""
 
       # Get the branch length
@@ -1400,30 +1579,49 @@ class TreeSortRunner:
                   if not segment:
                      continue
 
-                  if len(segments) > 1:
-                     segments += ", "
-                  segments += f"{segment}({distance})"
+                  if len(segments) > 0:
+                     segments_label += ", "
 
-                  # Add properties for segment, distance, and (is) reassorted.
-                  properties += (
-                     f'<property ref="{PHYLOXML_PROPERTY_REF.segment}" datatype="xsd:string" applies_to="node">{segment}</property>'
-                     f'<property ref="{PHYLOXML_PROPERTY_REF.isReassorted}" datatype="xsd:string" applies_to="node">yes</property>'
-                  )
+                  segments_label += f"{segment}({distance})"
 
                   if segment.startswith("?"):
-                     properties += f'<property ref="{PHYLOXML_PROPERTY_REF.isUncertain}" datatype="xsd:string" applies_to="node">yes</property>'
+                     is_uncertain = True
+
+                  segments.append(segment)
 
       if is_reassorted and len(segments) > 0:
          if is_tsnode:
-            name = segments
+            # The TS_* node name is replaced by segment(distance) value(s).
+            name = segments_label
+
+            segment_list = ",".join(segments)
+
+            # Add an empty segment property.
+            properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.segment}\" datatype=\"xsd:string\" applies_to=\"node\">{segment_list}</property>")
+         
          elif len(name) > 0:
-            name = f"{segments}: {name}"
+            # Preface the name with the segments label.
+            name = f"{segments_label}: {name}"
+
+            # Add a property for every segment.
+            for segment in segments:
+               properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.segment}\" datatype=\"xsd:string\" applies_to=\"node\">{segment}</property>")
+      else:
+         # Add an empty segment property
+         properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.segment}\" datatype=\"xsd:string\" applies_to=\"node\"></property>")
+
+      # Add properties for "is_reassorted", "is_uncertain", and "node_id".
+      properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.isReassorted}\" datatype=\"xsd:string\" applies_to=\"node\">{"yes" if is_reassorted else "no"}</property>")
+      properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.isUncertain}\" datatype=\"xsd:string\" applies_to=\"node\">{"yes" if is_uncertain else "no"}</property>")
+      properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.nodeID}\" datatype=\"xsd:string\" applies_to=\"node\">{ts_node_name}</property>")
+
+      property_elements = "".join(properties)
 
       return (
          "<clade>"
          f"<name>{name}</name>"
          f"<branch_length>{branch}</branch_length>"
-         f"{properties}"
+         f"{property_elements}"
       )
 
 
@@ -1463,7 +1661,7 @@ class TreeSortRunner:
             continue
 
       return
-
+   
 
    # Run prepare_dataset.sh to build alignments and trees and compile a descriptor file.
    def run_prepare_dataset(self) -> bool:
@@ -1500,7 +1698,7 @@ class TreeSortRunner:
          # Display the command about to be run.
          print(f"{' '.join(cmd)}\n")
 
-         result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
+         result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
          if result.returncode == 0:
             
             result_status = True
@@ -1519,6 +1717,9 @@ class TreeSortRunner:
                   # Write the script's stdout to run_treesort.py's stdout.
                   sys.stdout.write(f"{line}\n")
 
+      except subprocess.CalledProcessError as cpe:  
+         sys.stderr.write(f"Error preparing dataset:\n {cpe.stderr}\n")
+         return False
       except Exception as e:
          sys.stderr.write(f"Error preparing dataset:\n {e}\n")
          return False
@@ -1572,18 +1773,34 @@ class TreeSortRunner:
          if self.job_data.equal_rates:
             cmd.append(ScriptOption.EqualRates.value)
 
+         # Deviation
+         cmd.append(ScriptOption.Deviation)
+         cmd.append(str(self.job_data.deviation))
+
+         # Inference method
+         if self.job_data.inference_method:
+            cmd.append(ScriptOption.InferenceMethod.value)
+            cmd.append(InferenceMethod(self.job_data.inference_method).value) # NOTE: this seems overly-complex
+
+         # P-value
+         cmd.append(ScriptOption.PValue)
+         cmd.append(str(self.job_data.p_value))
+
          # Print the treesort command line that will be run.
          print(f"{' '.join(cmd)}\n")
 
          # Run the command
-         result = subprocess.run(cmd, capture_output=True, text=True)
+         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
          # Update the results object with TreeSort's stdout.
          self.results.treesort_stdout = result.stdout
 
          if result.returncode == 0:
             result_status = True
-                  
+
+      except subprocess.CalledProcessError as cpe:  
+         sys.stderr.write(f"Error in TreeSort:\n {cpe.stderr}\n")
+         return False       
       except Exception as e:
          sys.stderr.write(f"Error in TreeSort:\n {type(e).__name__}: {e}\n")
          return False
@@ -1608,11 +1825,18 @@ class TreeSortRunner:
 
             # Remove the "ws:" prefix from the directory name.
             job_data.input_fasta_file_id = job_data.input_fasta_file_id[3:]
+
       elif job_data.input_source == InputSource.FastaGroupID.value:
 
          # Make sure an input_fasta_group_id value was provided.
          if not job_data.input_fasta_group_id:
             raise ValueError("The input FASTA group ID is invalid")
+
+      elif job_data.input_source == InputSource.FastaData:
+
+         if job_data.input_fasta_data is None or len(job_data.input_fasta_data) < 1:
+            raise ValueError("The input FASTA data is invalid")
+         
       else:
          raise ValueError("The input source is invalid")
       
@@ -1621,10 +1845,6 @@ class TreeSortRunner:
 
 def main(argv=None) -> bool:
     
-   # Print the start time to stdout.
-   main_start = datetime.now()
-   print(f"Started at {TreeSortRunner.format_datetime(main_start)}")
-   
    # Exclude the script name.
    if argv is None:
       argv = sys.argv[1:]  
@@ -1642,21 +1862,21 @@ def main(argv=None) -> bool:
    if len(input_directory) == 0:
       traceback.print_exc(file=sys.stderr)
       sys.stderr.write("Invalid input directory parameter\n")
-      sys.exit(-1)
+      return False
 
    # The job filename parameter.
    job_filename = safe_trim(args.job_filename)
    if len(job_filename) == 0:
       traceback.print_exc(file=sys.stderr)
       sys.stderr.write("Invalid job filename parameter\n")
-      sys.exit(-1)
+      return False
 
    # The work directory parameter.
    work_directory = safe_trim(args.work_directory)
    if len(work_directory) == 0:
       traceback.print_exc(file=sys.stderr)
       sys.stderr.write("Invalid work directory parameter\n")
-      sys.exit(-1)
+      return False
 
    job_data = None
 
@@ -1669,7 +1889,7 @@ def main(argv=None) -> bool:
    except Exception as e:
       traceback.print_exc(file=sys.stderr)
       sys.stderr.write(f"Invalid job file:\n{e}\n")
-      sys.exit(-1)
+      return False
 
    try:
       # Create a TreeSortRunner instance
@@ -1678,13 +1898,13 @@ def main(argv=None) -> bool:
    except Exception as e:
       traceback.print_exc(file=sys.stderr)
       sys.stderr.write(f"Unable to create an instance of TreeSortRunner:\n{e}\n")
-      sys.exit(-1)
+      return False
    
    # Prepare the input file
    if not runner.prepare_input_file():
       traceback.print_exc(file=sys.stderr)
       sys.stderr.write("An error occurred in TreeSortRunner.prepare_input_file\n")
-      sys.exit(-1)
+      return False
 
    # The start time of prepare_dataset.
    pd_start = datetime.now()
@@ -1693,7 +1913,7 @@ def main(argv=None) -> bool:
    if not runner.run_prepare_dataset():
       traceback.print_exc(file=sys.stderr)
       sys.stderr.write("An error occurred in TreeSortRunner.run_prepare_dataset\n")
-      sys.exit(-1)
+      return False
 
    # Print the end time and total duration of prepare_dataset.
    print(f"Finished prepare_dataset at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), pd_start)}")
@@ -1702,34 +1922,46 @@ def main(argv=None) -> bool:
    if not runner.tree_sort():
       traceback.print_exc(file=sys.stderr)
       sys.stderr.write("An error occurred in TreeSortRunner.tree_sort\n")
-      sys.exit(-1)
-
+      return False
+   
    # Parse the annotated tree file for reassorted strains and create "reassortments.csv".
-   runner.create_reassortments_csv_file()
+   if not runner.create_reassortments_csv_file():
+      sys.stderr.write("An error occurred creating the reassortments CSV file")
+      return False
 
    # Create a PhyloXML version of the result tree.
-   runner.export_tree_as_phyloxml()
-
+   if not runner.export_tree_as_phyloxml():
+      sys.stderr.write("An error occurred creating the PhyloXML file")
+      return False
+   
    # Create a summary HTML file.
    if not runner.create_summary_html():
       traceback.print_exc(file=sys.stderr)
-      sys.stderr.write("An error occurred TreeSortRunner.create_summary_html\n")
-      sys.exit(-1)
+      sys.stderr.write("An error occurred in TreeSortRunner.create_summary_html\n")
+      return False
 
    # Delete intermediate files that are not needed in the output.
-   runner.delete_unnecessary_files()
+   if not runner.delete_unnecessary_files():
+      sys.stderr.write("An error occurred deleting unnecessary files\n")
 
    # Move intermediate files into a subdirectory in the working directory.
-   runner.move_intermediate_files()
-
-   # Print the end time and total duration of main.
-   print(f"Finished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), main_start)}")
+   if not runner.move_intermediate_files():
+      sys.stderr.write("An error occured moving intermediate files\n")
 
    return True
 
 
 if __name__ == "__main__" :
+
+   # Print the start time to stdout.
+   start_time = datetime.now()
+   sys.stdout.write(f"Started at {TreeSortRunner.format_datetime(start_time)}")
+      
    result = main()
+
+   # Print the end time and total duration of main.
+   sys.stdout.write(f"Finished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), start_time)}")
+
    if result:
       sys.exit(0)
    else:
