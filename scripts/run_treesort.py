@@ -317,39 +317,23 @@ class TreeSortRunner:
       self.input_directory = input_directory
       if not self.input_directory or len(self.input_directory) < 1:
          raise ValueError("The input directory parameter is invalid")
+
+      self.job_data = job_data
+
+      # Validate the job data.
+      if not self.validate_job_data():
+         raise ValueError("The job data is invalid")
       
       # The work directory
       self.work_directory = work_directory
       if not self.work_directory or len(self.work_directory) < 1:
          raise ValueError("The work directory parameter is invalid")
       
-      # Initialize member variables.
-      self.segments = []
-
       # Determine the base URL.
       if "P3_BASE_URL" in os.environ:
          self.base_url = os.environ["P3_BASE_URL"]
       else:
          self.base_url = Constants.BVBRC_URL
-
-      # Validate the job data.
-      if not job_data:
-         raise ValueError("A job data parameter was not provided")
-
-      self.job_data = job_data
-
-      # Trim the segment list string and make them uppercase.
-      self.job_data.segments = safe_trim(self.job_data.segments).upper()
-
-      # Validate the job data.
-      if not TreeSortRunner.is_job_data_valid(self.job_data):
-         raise ValueError("Job data in the constructor is invalid")
-
-      # Populate the segments list from the segments string in the job data.
-      segments = map(str.strip, (self.job_data.segments or "").split(","))
-      if not bool(segments):
-         raise ValueError("No valid segments were provided")
-      self.segments = [segment for segment in segments if segment]
 
       # Initialize the results object.
       self.results = Results()
@@ -415,6 +399,7 @@ class TreeSortRunner:
       sys.stdout.write(f"The input FASTA file was created from the genome group ({out_fasta_path})\n")
       return True
 
+
    def _chunked(self, items: List[str], n: int) -> Iterable[List[str]]:
       for i in range(0, len(items), n):
          yield items[i:i+n]
@@ -460,7 +445,7 @@ class TreeSortRunner:
       # TODO: this is only temporary...forester.jar will be updated in the container soon (?).
       top = safe_trim(os.getenv("KB_TOP"))
       if len(top) < 1:
-         raise Exception("Invalid KB_TOP environment variable in create_reassortments_csv_file.")
+         raise Exception("Invalid KB_TOP environment variable in create_reassortments_csv_file\n")
    
       # The path depends on whether TreeSort is run in production or development.
       dev_path = os.path.join(top, "modules", "treesort", "lib", Constants.FORESTER_JAR)
@@ -471,7 +456,7 @@ class TreeSortRunner:
       elif os.path.exists(dev_path):
          forester_path = dev_path
       else:
-         raise Exception(f"Unable to find {Constants.FORESTER_JAR}")
+         raise Exception(f"Unable to find {Constants.FORESTER_JAR}\n")
 
       try:
          cmd = ["java", Constants.FORESTER_JAVA_PARAMETERS, "-cp", forester_path, Constants.FORESTER_TREESORT_REFORMATE_CLASS]
@@ -489,7 +474,7 @@ class TreeSortRunner:
          cmd_result = subprocess.run(cmd, shell=False, check=True)
 
          if cmd_result.returncode > 0 or not os.path.exists(csv_file_path):
-            raise Exception(f"Forester was unable to generate the CSV file")
+            raise Exception(f"Forester was unable to generate the CSV file\n")
          
          # Open the CSV file
          with open(csv_file_path, newline="", encoding="utf-8") as csvfile:
@@ -623,7 +608,7 @@ class TreeSortRunner:
       # The top-level path 
       top = safe_trim(os.getenv("KB_TOP"))
       if len(top) < 1:
-         raise Exception("Invalid KB_TOP environment variable in create_summary_html.")
+         raise Exception("Invalid KB_TOP environment variable in create_summary_html\n")
       
       # The path depends on whether TreeSort is run in production or development.
       dev_path = os.path.join(top, "modules", "treesort", "lib", Constants.SUMMARY_TEMPLATE_FILENAME)
@@ -649,7 +634,7 @@ class TreeSortRunner:
          raise Exception(f"Error: The file {template_path} was not found.")
       
       except Exception as e:
-         raise Exception(f"An error occurred: {e}")
+         raise Exception(f"An error occurred: {e}\n")
 
       # Format the stdout from prepare_treesort_dataset and TreeSort as HTML.
       self.format_results()
@@ -671,7 +656,7 @@ class TreeSortRunner:
          "{{phyloxml_filename}}": f"{self.job_data.output_file}{Constants.PHYLOXML_FILE_EXTENSION}",
          "{{reassortments_filename}}": Constants.REASSORTMENTS_FILE_NAME, 
          "\"{{results_json}}\"": self.results.json,
-         "{{segments}}": self.job_data.segments,
+         "{{segments}}": " ".join(self.segments),
          "{{treesort_summary}}": treesort_summary,
          "{{workspace_folder}}": f"{self.job_data.output_path}/.{self.job_data.output_file}/",
       }
@@ -761,7 +746,7 @@ class TreeSortRunner:
       # TODO: this is only temporary...forester.jar will be updated in the container soon (?).
       top = safe_trim(os.getenv("KB_TOP"))
       if len(top) < 1:
-         raise Exception("Invalid KB_TOP environment variable in export_tree_as_phyloxml.")
+         raise Exception("Invalid KB_TOP environment variable in export_tree_as_phyloxml\n")
    
       # The path depends on whether TreeSort is run in production or development.
       dev_path = os.path.join(top, "modules", "treesort", "lib", Constants.FORESTER_JAR)
@@ -772,7 +757,7 @@ class TreeSortRunner:
       elif os.path.exists(dev_path):
          forester_path = dev_path
       else:
-         raise Exception(f"Unable to find {Constants.FORESTER_JAR}")
+         raise Exception(f"Unable to find {Constants.FORESTER_JAR}\n")
 
       # Use Forester to export the Nexus file as a PhyloXML file.
       try:
@@ -789,7 +774,7 @@ class TreeSortRunner:
          cmd_result = subprocess.run(cmd, shell=False, check=True, capture_output=True)
 
          if cmd_result.returncode > 0 or not os.path.exists(phyloxml_file_path):
-            raise Exception(f"Forester was unable to export the PhyloXML file")
+            raise Exception(f"Forester was unable to export the PhyloXML file\n")
 
       except subprocess.CalledProcessError as cpe:  
          sys.stderr.write(f"Error exporting tree as PhyloXML:\n {cpe.stderr}\n")
@@ -836,7 +821,7 @@ class TreeSortRunner:
       sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genome(s)\n")
 
       if len(all_genomes) < Constants.MIN_GENOMES:
-         raise Exception(f"At least {Constants.MIN_GENOMES} genomes are required for analysis and only {len(all_genomes)} valid genomes were included")
+         raise Exception(f"At least {Constants.MIN_GENOMES} genomes are required for analysis and only {len(all_genomes)} valid genomes were included\n")
                
       return all_genomes
 
@@ -956,7 +941,7 @@ class TreeSortRunner:
    def format_results(self):
 
       if not self.results:
-         raise Exception("The results object is invalid")
+         raise Exception("The results object is invalid\n")
       
       # Parse TreeSort's stdout
       stdout = safe_trim(self.results.treesort_stdout)
@@ -1064,7 +1049,7 @@ class TreeSortRunner:
    def is_genome_metadata_valid(self, genome: GenomeMetadata) -> bool:
       """ Evaluate the segment information in the genome metadta. """
       if genome is None:
-         sys.stderr.write("Invalid genome")
+         sys.stderr.write("Invalid genome\n")
          return False
 
       # Does the genome have the reference segment?
@@ -1080,70 +1065,7 @@ class TreeSortRunner:
             valid_segments += 1
 
       if valid_segments < 2:
-         sys.stderr.write(f"Genome {genome.genome_id} doesn't have enough segments for analysis")
-         return False
-
-      return True
-   
-
-   # Is the JobData instance valid?
-   @staticmethod
-   def is_job_data_valid(job_data: JobData) -> bool:
-
-      sys.stdout.write("\nIn TreeSortRunner.is_job_data_valid\n")
-
-      try:
-         if not job_data or not isinstance(job_data, JobData):
-            raise Exception("job_data is empty")
-         
-         # Inference method
-         if job_data.inference_method not in [m.value for m in InferenceMethod]:
-            job_data.inference_method = InferenceMethod.Local
-
-         # Validate the job's input_source.
-         TreeSortRunner.validate_input_source(job_data) 
-
-         # Match type and match regex
-         match_regex = safe_trim(job_data.match_regex)
-         if job_data.match_type == MatchType.RegEx and len(match_regex) < 1:
-            raise ValueError("The match regular expression was not provided")
-
-         # Validate the output path.
-         if not job_data.output_path:
-            raise ValueError("The output path is invalid")
-
-         # Validate the output filename
-         if not job_data.output_file:
-            raise ValueError("The output filename is invalid")
-         
-         # If output_file has a file extension, remove it (it will be added later, as necessary).
-         job_data.output_file = os.path.splitext(job_data.output_file)[0]
-
-         # Validate the reference segment and provide a default if not provided.
-         job_data.ref_segment = safe_trim(job_data.ref_segment)
-         if not job_data.ref_segment:
-            job_data.ref_segment = Constants.DEFAULT_REF_SEGMENT
-
-         elif not job_data.ref_segment in Constants.VALID_SEGMENTS:
-            raise ValueError(f"Invalid reference segment: {job_data.ref_segment}")
-
-         # Reference tree inference
-         if not job_data.ref_tree_inference:
-            job_data.ref_tree_inference = TreeInference.FastTree
-
-         # Validate the segments
-         segments = safe_trim(job_data.segments)
-         if len(segments) > 0:
-            for segment in segments.split(","):
-               if not segment.upper() in Constants.VALID_SEGMENTS:
-                  raise ValueError(f"Invalid segment: {segment}")
-         else:
-            # TreeSort accepts an empty segments parameter as "all segments", but we are 
-            # explicitly populating it here so it can be used when creating the summary file.
-            job_data.segments = ",".join(Constants.VALID_SEGMENTS)
-
-      except Exception as e:
-         sys.stderr.write(f"Invalid job data:\n {e}\n")
+         sys.stderr.write(f"Genome {genome.genome_id} doesn't have enough segments for analysis\n")
          return False
 
       return True
@@ -1389,16 +1311,16 @@ class TreeSortRunner:
 
             group_path = safe_trim(self.job_data.input_fasta_group_id)
             if len(group_path) < 1:
-               raise ValueError("Invalid input genome group id/path")
+               raise ValueError("Invalid input genome group id/path\n")
 
             # Build input.fasta from the genome group (downloads genome FASTA + rewrites headers)
             if not self.build_input_fasta_from_group(group_path, self.input_filename):
-               raise Exception("Unable to build input FASTA from genome group")
+               raise Exception("Unable to build input FASTA from genome group\n")
 
          elif input_source == InputSource.FastaExistingDataset.value:
 
             # TODO: Figure out the best way to handle this scenario.
-            raise ValueError("Processing an existing dataset is not yet implemented")
+            raise ValueError("Processing an existing dataset is not yet implemented\n")
 
          elif input_source == InputSource.FastaData.value:
       
@@ -1414,7 +1336,7 @@ class TreeSortRunner:
                raise IOError(f"Error copying FASTA data to input file:\n {e}\n")
 
          else:
-            raise ValueError(f"Invalid input source: {input_source}")
+            raise ValueError(f"Invalid input source: {input_source}\n")
 
          # Validate the input filename.
          if not self.input_filename:
@@ -1680,9 +1602,9 @@ class TreeSortRunner:
             cmd.append(ScriptOption.FastTree.value)
 
          # The segments (optional)
-         if self.job_data.segments:
+         if len(self.segments) > 0:
             cmd.append(ScriptOption.Segments.value)
-            cmd.append(self.job_data.segments)
+            cmd.append(",".join(self.segments))
 
          # The input FASTA file
          cmd.append(self.input_filename)
@@ -1843,6 +1765,74 @@ class TreeSortRunner:
       return True
    
 
+   # Validate the JobData instance and provide defaults when appropriate.
+   def validate_job_data(self) -> bool:
+
+      sys.stdout.write("\nIn TreeSortRunner.validate_job_data\n")
+
+      try:
+         if not self.job_data or not isinstance(self.job_data, JobData):
+            raise ValueError("job_data is empty\n")
+         
+         # Inference method (default to "local")
+         if self.job_data.inference_method not in [m.value for m in InferenceMethod]:
+            self.job_data.inference_method = InferenceMethod.Local
+
+         # Validate the job's input_source.
+         TreeSortRunner.validate_input_source(self.job_data) 
+
+         # Match type and match regex
+         match_regex = safe_trim(self.job_data.match_regex)
+         if self.job_data.match_type == MatchType.RegEx and len(match_regex) < 1:
+            raise ValueError("The match regular expression was not provided\n")
+
+         # Validate the output path.
+         if not self.job_data.output_path:
+            raise ValueError("The output path is invalid\n")
+
+         # Validate the output filename
+         if not self.job_data.output_file:
+            raise ValueError("The output filename is invalid\n")
+         
+         # If output_file has a file extension, remove it (it will be added later, as necessary).
+         self.job_data.output_file = os.path.splitext(self.job_data.output_file)[0]
+
+         self.segments = []
+                  
+         # Trim the segment list string, make it all uppercase, and remove whitespace.
+         str_segments = safe_trim(self.job_data.segments).upper().replace(" ", "")
+         if len(str_segments) < 1:
+            # Default to all valid segments.
+            str_segments = ",".join(Constants.VALID_SEGMENTS)
+   
+         for segment in str_segments.split(","):
+            if not segment in Constants.VALID_SEGMENTS:
+               raise ValueError(f"{segment} is not a valid segment name\n")
+   
+            self.segments.append(segment)
+   
+         if len(self.segments) < 2:
+            raise ValueError("At least 2 segments are required for analysis\n")
+         
+         # Validate the reference segment and provide a default if not provided.
+         self.job_data.ref_segment = safe_trim(self.job_data.ref_segment)
+
+         if not self.job_data.ref_segment:
+            self.job_data.ref_segment = Constants.DEFAULT_REF_SEGMENT
+         elif not self.job_data.ref_segment in self.segments:
+            raise ValueError(f"The reference segment {self.job_data.ref_segment} must be included in the segment list\n")
+
+         # Reference tree inference (default to "FastTree")
+         if not self.job_data.ref_tree_inference:
+            self.job_data.ref_tree_inference = TreeInference.FastTree
+
+      except Exception as e:
+         sys.stderr.write(f"Invalid job data:\n {e}\n")
+         return False
+
+      return True
+
+   
 def main(argv=None) -> bool:
     
    # Exclude the script name.
