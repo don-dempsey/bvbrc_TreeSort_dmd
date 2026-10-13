@@ -1533,8 +1533,11 @@ class TreeSortRunner:
          properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.segment}\" datatype=\"xsd:string\" applies_to=\"node\"></property>")
 
       # Add properties for "is_reassorted", "is_uncertain", and "node_id".
-      properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.isReassorted}\" datatype=\"xsd:string\" applies_to=\"node\">{"yes" if is_reassorted else "no"}</property>")
-      properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.isUncertain}\" datatype=\"xsd:string\" applies_to=\"node\">{"yes" if is_uncertain else "no"}</property>")
+      is_reassorted_text = "yes" if is_reassorted else "no"
+      is_uncertain_text = "yes" if is_uncertain else "no"
+      
+      properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.isReassorted}\" datatype=\"xsd:string\" applies_to=\"node\">{is_reassorted_text}</property>")
+      properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.isUncertain}\" datatype=\"xsd:string\" applies_to=\"node\">{is_uncertain_text}</property>")
       properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.nodeID}\" datatype=\"xsd:string\" applies_to=\"node\">{ts_node_name}</property>")
 
       property_elements = "".join(properties)
