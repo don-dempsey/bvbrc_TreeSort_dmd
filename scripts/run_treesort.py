@@ -855,6 +855,8 @@ class TreeSortRunner:
 
          sys.stdout.write(f"\nGenome JSON:\n\n{data}\n\n")
 
+         valid_genomes = 0
+
          # Iterate over all genome metadata in the JSON.
          for rec in data:
             try:
@@ -873,6 +875,8 @@ class TreeSortRunner:
 
                # Add the genome metadata to the dictionary that will be returned.
                genomes[genome.genome_id] = genome
+
+               valid_genomes += 1
 
             except Exception as e:
                sys.stderr.write(str(e))
@@ -908,7 +912,7 @@ class TreeSortRunner:
                "collection_date": self.normalize_collection_date(rec.get("collection_date")),
             }"""
 
-         sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genomes\n")
+         sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genomes and {valid_genomes} were valid.\n")
 
       except Exception as e:
          sys.stderr.write(f"An error occurred fetching genome metadata:\n {e}\n")
