@@ -50,8 +50,11 @@ class Constants:
    INPUT_FASTA_FILE_NAME = "input.fasta"
 
    # The minimum number of genomes required for analysis.
-   MIN_GENOMES = 10
+   MIN_GENOMES_FOR_ANALYSIS = 10
 
+   # The minimum number of segments required for analysis.
+   MIN_SEGMENTS_FOR_ANALYSIS = 2
+   
    # The name of the subdirectory created in the working directory to hold intermediate files.
    OUTPUT_SUBDIRECTORY_NAME = "files"
 
@@ -204,26 +207,28 @@ class GenomeMetadata:
 
       self.genome_id = safe_trim(genome_id)
       if self.genome_id is None or len(self.genome_id) < 1:
-         raise ValueError(f"Invalid genome ID in GenomeMetadata")
+         raise ValueError(f"Invalid genome ID in GenomeMetadata\n")
 
       collection_date = safe_trim(collection_date)
       if collection_date is None or len(collection_date) < 1:
-         raise ValueError(f"Empty collection date in genome {self.genome_id}")
+         raise ValueError(f"Empty collection date in genome {self.genome_id}\n")
       
       self.collection_date = TreeSortRunner.normalize_collection_date(collection_date)
       if self.collection_date == "0000-00-00":
-         raise ValueError(f"Invalid collection date \"0000-00-00\" in genome {self.genome_id}")
+         raise ValueError(f"Invalid collection date \"0000-00-00\" in genome {self.genome_id}\n")
 
       self.strain = safe_trim(strain)
       if self.strain is None or len(self.strain) < 1:
-         raise ValueError(f"Invalid strain for genome {self.genome_id}")
+         raise ValueError(f"Invalid strain for genome {self.genome_id}\n")
       
       self.subtype = safe_trim(subtype)
-      if self.subtype is None or len(self.subtype) < 1:
-         raise ValueError(f"Invalid subtype for genome {self.genome_id}")
+      # dmd 10/13/26: This is empty in what appear to be valid genomes and I think subtype is 
+      # only used in the strain's name in the FASTA header.
+      #if self.subtype is None or len(self.subtype) < 1:
+      #   raise ValueError(f"Invalid subtype for genome {self.genome_id}\n")
 
       if segments is None or len(segments) < 1:
-         raise ValueError(f"Invalid segments for genome {genome_id}")
+         raise ValueError(f"Invalid segments for genome {genome_id}\n")
 
       # Convert segment numbers to names.
       self.segments = TreeSortRunner.convert_segment_numbers_to_names(segments)
@@ -264,7 +269,6 @@ class Results:
    reassortments: int
 
    # A list of text info for each segment.
-   # TODO: Use an enum for the key?
    segment_data: dict[str, list[str]]
 
    # TreeSort's raw stdout and a list of parsed data.
@@ -392,8 +396,8 @@ class TreeSortRunner:
             except Exception as e:
                sys.stderr.write(f"Error in genome {genome_id}:\n {str(e)}")
 
-      if valid_genomes < Constants.MIN_GENOMES:
-         sys.stderr.write(f"At least {Constants.MIN_GENOMES} genomes are required for analysis but only {valid_genomes} were provided")
+      if valid_genomes < Constants.MIN_GENOMES_FOR_ANALYSIS:
+         sys.stderr.write(f"At least {Constants.MIN_GENOMES_FOR_ANALYSIS} genomes are required for analysis but only {valid_genomes} were provided")
          return False
       
       sys.stdout.write(f"The input FASTA file was created from the genome group ({out_fasta_path})\n")
@@ -820,8 +824,8 @@ class TreeSortRunner:
 
       sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genome(s)\n")
 
-      if len(all_genomes) < Constants.MIN_GENOMES:
-         raise Exception(f"At least {Constants.MIN_GENOMES} genomes are required for analysis and only {len(all_genomes)} valid genomes were included\n")
+      if len(all_genomes) < Constants.MIN_GENOMES_FOR_ANALYSIS:
+         raise Exception(f"At least {Constants.MIN_GENOMES_FOR_ANALYSIS} genomes are required for analysis and only {len(all_genomes)} valid genomes were included\n")
                
       return all_genomes
 
@@ -1282,7 +1286,7 @@ class TreeSortRunner:
    # Determine the source of the FASTA input file and prepare it for use.
    def prepare_input_file(self) -> bool:
 
-      sys.stdout.write("\nIn TreeSortRunner.prepare_input_file\n")
+      sys.stdout.write("In TreeSortRunner.prepare_input_file\n")
 
       try:
          # The input source determines how the input file is provided.
@@ -1394,12 +1398,12 @@ class TreeSortRunner:
             segment_name = Constants.SEGMENT_NUM_TO_NAME.get(str(segment_num)) or ""
 
             if segment_name not in self.segments:
-               sys.stderr.write(f"Skipping the sequence for segment {segment_name} in genome {genome.genome_id}")
+               sys.stderr.write(f"Skipping the sequence for segment {segment_name} in genome {genome.genome_id}\n")
                skip_sequence = True
                continue
 
             if segment_name in found_segments:
-               sys.stderr.write(f"Duplicate sequence found for segment {segment_name} in genome {genome.genome_id}")
+               sys.stderr.write(f"Duplicate sequence found for segment {segment_name} in genome {genome.genome_id}\n")
                skip_sequence = True
                continue
 
@@ -1535,7 +1539,7 @@ class TreeSortRunner:
       # Add properties for "is_reassorted", "is_uncertain", and "node_id".
       is_reassorted_text = "yes" if is_reassorted else "no"
       is_uncertain_text = "yes" if is_uncertain else "no"
-      
+
       properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.isReassorted}\" datatype=\"xsd:string\" applies_to=\"node\">{is_reassorted_text}</property>")
       properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.isUncertain}\" datatype=\"xsd:string\" applies_to=\"node\">{is_uncertain_text}</property>")
       properties.append(f"<property ref=\"{PHYLOXML_PROPERTY_REF.nodeID}\" datatype=\"xsd:string\" applies_to=\"node\">{ts_node_name}</property>")
@@ -1771,7 +1775,7 @@ class TreeSortRunner:
    # Validate the JobData instance and provide defaults when appropriate.
    def validate_job_data(self) -> bool:
 
-      sys.stdout.write("\nIn TreeSortRunner.validate_job_data\n")
+      sys.stdout.write("In TreeSortRunner.validate_job_data\n")
 
       try:
          if not self.job_data or not isinstance(self.job_data, JobData):
@@ -1948,12 +1952,12 @@ if __name__ == "__main__" :
 
    # Print the start time to stdout.
    start_time = datetime.now()
-   sys.stdout.write(f"Started at {TreeSortRunner.format_datetime(start_time)}")
+   sys.stdout.write(f"Started at {TreeSortRunner.format_datetime(start_time)}\n\n")
       
    result = main()
 
    # Print the end time and total duration of main.
-   sys.stdout.write(f"Finished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), start_time)}")
+   sys.stdout.write(f"\nFinished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), start_time)}\n")
 
    if result:
       sys.exit(0)
