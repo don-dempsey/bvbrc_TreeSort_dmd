@@ -352,15 +352,14 @@ class TreeSortRunner:
          4) Rewrite FASTA headers and validate the FASTA content
          5) Write the FASTA file to out_fasta_path
       """
-      sys.stdout.write(f"\nBuilding input FASTA from genome group: {group_path}\n")
+      sys.stdout.write(f"Building input FASTA from genome group: {group_path}\n")
 
       genome_ids = self.get_genome_ids_from_group(group_path)
       if genome_ids is None or len(genome_ids) < 1:
          return False
-      sys.stdout.write(f"Genome IDs found in group: {len(genome_ids)}\n")
 
+      # Get metadata for all genome IDs.
       meta = self.fetch_all_metadata(genome_ids)
-      sys.stdout.write(f"Metadata records fetched: {len(meta)}\n")
 
       valid_genomes = 0
 
@@ -397,7 +396,7 @@ class TreeSortRunner:
                sys.stderr.write(f"Error in genome {genome_id}:\n {str(e)}")
 
       if valid_genomes < Constants.MIN_GENOMES_FOR_ANALYSIS:
-         sys.stderr.write(f"At least {Constants.MIN_GENOMES_FOR_ANALYSIS} genomes are required for analysis but only {valid_genomes} were provided")
+         sys.stderr.write(f"At least {Constants.MIN_GENOMES_FOR_ANALYSIS} genomes are required for analysis but only {valid_genomes} were provided\n")
          return False
       
       sys.stdout.write(f"The input FASTA file was created from the genome group ({out_fasta_path})\n")
@@ -822,11 +821,11 @@ class TreeSortRunner:
          sys.stderr.write(f"Error fetching metadata for {len(genome_ids)} genome IDs:\n {e}\n")
          return all_genomes
 
-      sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genome(s)\n")
-
       if len(all_genomes) < Constants.MIN_GENOMES_FOR_ANALYSIS:
          raise Exception(f"At least {Constants.MIN_GENOMES_FOR_ANALYSIS} genomes are required for analysis and only {len(all_genomes)} valid genomes were included\n")
-               
+
+      sys.stdout.write(f"\tSuccessfully fetched {len(all_genomes)} metadata records\n")
+
       return all_genomes
 
 
@@ -854,6 +853,8 @@ class TreeSortRunner:
          # Example JSON: [{"collection_date":"2011-03-21","strain":"D/swine/Oklahoma/1334/2011","segment":["1","2","3","4","5","6","7"],"genome_id":"1173138.25"}]
          data = r.json()
 
+         sys.stdout.write(f"\nGenome JSON:\n\n{data}\n\n")
+
          # Iterate over all genome metadata in the JSON.
          for rec in data:
             try:
@@ -867,6 +868,7 @@ class TreeSortRunner:
 
                # Validate the genome metadata.
                if not self.is_genome_metadata_valid(genome):
+                  sys.stderr.write(f"Genome with id {genome.genome_id} is not valid\n")
                   continue
 
                # Add the genome metadata to the dictionary that will be returned.
@@ -1020,6 +1022,8 @@ class TreeSortRunner:
       """
       Uses p3-get-genome-group "<workspace path>" and extracts genome_ids like 11320.471792
       """
+      ids: List[str] = []
+
       try:
          result = subprocess.run(
             ["p3-get-genome-group", group_path],
@@ -1031,7 +1035,6 @@ class TreeSortRunner:
          if result.returncode != 0:
             raise Exception(result.stderr)
 
-         ids: List[str] = []
          for line in result.stdout.splitlines():
             line = safe_trim(line)
             if re.fullmatch(r"\d+\.\d+", line):
@@ -1039,9 +1042,7 @@ class TreeSortRunner:
 
          if not ids:
             raise ValueError(f"No genome IDs found in genome group: {group_path}")
-
-         return ids
-
+         
       except subprocess.CalledProcessError as cpe:  
          sys.stderr.write(f"Error reading genome group:\n {cpe.stderr}\n")
          return None
@@ -1049,6 +1050,8 @@ class TreeSortRunner:
          sys.stderr.write(f"Error reading genome group:\n {e}")
          return None
 
+      sys.stdout.write(f"\tThe genome group contains {len(ids)} genome IDs\n")
+      return ids
 
    def is_genome_metadata_valid(self, genome: GenomeMetadata) -> bool:
       """ Evaluate the segment information in the genome metadta. """
@@ -1286,7 +1289,7 @@ class TreeSortRunner:
    # Determine the source of the FASTA input file and prepare it for use.
    def prepare_input_file(self) -> bool:
 
-      sys.stdout.write("In TreeSortRunner.prepare_input_file\n")
+      sys.stdout.write("In TreeSortRunner.prepare_input_file\n\n")
 
       try:
          # The input source determines how the input file is provided.
@@ -1354,7 +1357,7 @@ class TreeSortRunner:
          # FASTA header requires the segment name/abbreviation surrounded by |'s and a date at the end.
 
       except subprocess.CalledProcessError as cpe:  
-         sys.stderr.write(f"Error processing input file:\n {cpe.stderr}\n")
+         sys.stderr.write(f"Error processing input file:\n \t{cpe.stderr}\n")
          return False
       except Exception as e:
          sys.stderr.write(f"Error processing input file:\n {e}\n")
@@ -1731,7 +1734,10 @@ class TreeSortRunner:
          sys.stderr.write(f"Error in TreeSort:\n {cpe.stderr}\n")
          return False       
       except Exception as e:
-         sys.stderr.write(f"Error in TreeSort:\n {type(e).__name__}: {e}\n")
+         if e is None:
+            sys.stderr.write(f"An unknown error occurred in method tree_sort\n")
+         else:
+            sys.stderr.write(f"Error in TreeSort:\n {type(e).__name__}: {e}\n")
          return False
       
       return result_status
@@ -1775,7 +1781,7 @@ class TreeSortRunner:
    # Validate the JobData instance and provide defaults when appropriate.
    def validate_job_data(self) -> bool:
 
-      sys.stdout.write("In TreeSortRunner.validate_job_data\n")
+      sys.stdout.write("In TreeSortRunner.validate_job_data\n\n")
 
       try:
          if not self.job_data or not isinstance(self.job_data, JobData):
@@ -1957,7 +1963,7 @@ if __name__ == "__main__" :
    result = main()
 
    # Print the end time and total duration of main.
-   sys.stdout.write(f"\nFinished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), start_time)}\n")
+   sys.stdout.write(f"\nFinished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), start_time)}\n\n")
 
    if result:
       sys.exit(0)
