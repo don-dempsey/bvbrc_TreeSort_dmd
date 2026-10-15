@@ -859,6 +859,10 @@ class TreeSortRunner:
          r = requests.get(url, headers=headers, timeout=60)
          r.raise_for_status()
 
+         # TEST
+         sys.stdout.write(f"r.headers = {str(r.headers)} and status code = {str(r.status_code)}\n")
+
+
          # Example JSON: [{"collection_date":"2011-03-21","strain":"D/swine/Oklahoma/1334/2011","segment":["1","2","3","4","5","6","7"],"genome_id":"1173138.25"}]
          data = r.json()
 
