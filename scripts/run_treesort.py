@@ -1039,12 +1039,16 @@ class TreeSortRunner:
       auth_token = None
 
       try:
-         auth_token = os.environ["P3_AUTH_TOKEN"]
+         auth_token = os.environ.get("P3_AUTH_TOKEN", default=None)
+
          if not auth_token:
-            auth_token = Path.home().joinpath(".patric_token").read_text().strip()
+            token_file = Path.home().joinpath(".patric_token")
+            if token_file.exists():
+               auth_token = token_file.read_text().strip()
+
       except Exception as e:
-         sys.stderr.write(f"An error occurred retrieving the auth token from the environment:\n {e}\n")
-      
+         sys.stdout.write(f"Unable to find a valid auth token:\n\t{str(e)}\n")
+
       return auth_token
    
       
