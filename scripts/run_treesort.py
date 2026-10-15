@@ -851,7 +851,7 @@ class TreeSortRunner:
          # Look for an auth token.
          auth_token = self.get_auth_token()
          if auth_token:
-            headers = {"Authorization": f"Bearer {auth_token}"}
+            headers = {"Authorization": auth_token} # f"Bearer {auth_token}
             sys.stdout.write("Adding an Authorization token\n")
          else:
             headers = {}
