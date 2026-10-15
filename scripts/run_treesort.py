@@ -852,6 +852,7 @@ class TreeSortRunner:
          auth_token = self.get_auth_token()
          if auth_token:
             headers = {"Authorization": f"Bearer {auth_token}"}
+            sys.stdout.write("Adding an Authorization token\n")
          else:
             headers = {}
 
@@ -1045,6 +1046,12 @@ class TreeSortRunner:
             token_file = Path.home().joinpath(".patric_token")
             if token_file.exists():
                auth_token = token_file.read_text().strip()
+               if not auth_token:
+                  sys.stdout.write("Unable to use .patric_token\n")
+               else:
+                  sys.stdout.write("Using .patric_token\n")
+         else:
+            sys.stdout.write("Using P3_AUTH_TOKEN\n")
 
       except Exception as e:
          sys.stdout.write(f"Unable to find a valid auth token:\n\t{str(e)}\n")
