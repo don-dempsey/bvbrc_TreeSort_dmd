@@ -851,7 +851,7 @@ class TreeSortRunner:
          # Look for an auth token.
          auth_token = self.get_auth_token()
          if auth_token:
-            headers = {"Authorization": auth_token} # f"Bearer {auth_token}
+            headers = {"Authorization": auth_token}
             sys.stdout.write("Adding an Authorization token\n")
          else:
             headers = {}
@@ -859,14 +859,10 @@ class TreeSortRunner:
          r = requests.get(url, headers=headers, timeout=60)
          r.raise_for_status()
 
-         # TEST
-         sys.stdout.write(f"r.headers = {str(r.headers)} and status code = {str(r.status_code)}\n")
-
-
          # Example JSON: [{"collection_date":"2011-03-21","strain":"D/swine/Oklahoma/1334/2011","segment":["1","2","3","4","5","6","7"],"genome_id":"1173138.25"}]
          data = r.json()
 
-         sys.stdout.write(f"\nGenome JSON:\n\n{data}\n\n")
+         #sys.stdout.write(f"\nGenome JSON:\n\n{data}\n\n")
 
          valid_genomes = 0
 
@@ -1429,8 +1425,8 @@ class TreeSortRunner:
          # Is this is a header line?
          if line.startswith(">"):
 
-            # Example FASTA header in the input: "">1173138.25.con.0006 segment"
-            match = re.search(r'\.([^.\s]+)\s+segment', line)
+            # Example FASTA header in the input: ">1173138.25.con.0006"
+            match = re.search(r"\.(\d+)(\s|$)", line[1:])    #r'\.([^.\s]+)', line)
             if not match:
                sys.stderr.write(f"Invalid FASTA header format for genome {genome.genome_id}: {line}")
                skip_sequence = True
