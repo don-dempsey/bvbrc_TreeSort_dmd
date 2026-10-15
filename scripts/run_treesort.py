@@ -8,6 +8,7 @@ from enum import Enum
 import json
 from math import ceil, floor, fmod, trunc
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -847,7 +848,14 @@ class TreeSortRunner:
       genomes: Dict[str, GenomeMetadata] = {}
 
       try:
-         r = requests.get(url, timeout=60)
+         # Look for an auth token.
+         auth_token = self.get_auth_token()
+         if auth_token:
+            headers = {"Authorization": f"Bearer {auth_token}"}
+         else:
+            headers = {}
+
+         r = requests.get(url, headers=headers, timeout=60)
          r.raise_for_status()
 
          # Example JSON: [{"collection_date":"2011-03-21","strain":"D/swine/Oklahoma/1334/2011","segment":["1","2","3","4","5","6","7"],"genome_id":"1173138.25"}]
@@ -1022,6 +1030,24 @@ class TreeSortRunner:
       return result_date
    
 
+   def get_auth_token(self) -> str|None:
+      """ 
+      Get the web API auth token from the environment. If the code was initiated by the scheduler, the
+      P3_AUTH_TOKEN environment variable will have been set. Otherwise, if the code is initiated from the
+      CLI, a valid token should be in $HOME/.patric_token.
+      """
+      auth_token = None
+
+      try:
+         auth_token = os.environ["P3_AUTH_TOKEN"]
+         if not auth_token:
+            auth_token = Path.home().joinpath(".patric_token").read_text().strip()
+      except Exception as e:
+         sys.stderr.write(f"An error occurred retrieving the auth token from the environment:\n {e}\n")
+      
+      return auth_token
+   
+      
    def get_genome_ids_from_group(self, group_path: str) -> List[str]|None:
       """
       Uses p3-get-genome-group "<workspace path>" and extracts genome_ids like 11320.471792
