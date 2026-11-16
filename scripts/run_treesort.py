@@ -1638,6 +1638,7 @@ class TreeSortRunner:
 
       except subprocess.CalledProcessError as cpe:  
          sys.stderr.write(f"Error preparing dataset:\n {cpe.stderr}\n")
+         sys.stdout.write(f"The following output was captured: \n {cpe.stdout}\n")
          return False
       except Exception as e:
          sys.stderr.write(f"Error preparing dataset:\n {e}\n")
@@ -1721,6 +1722,7 @@ class TreeSortRunner:
 
       except subprocess.CalledProcessError as cpe:  
          sys.stderr.write(f"Error in TreeSort:\n {cpe.stderr}\n")
+         sys.stdout.write(f"The following output was captured: \n {cpe.stdout}\n")
          return False       
       except Exception as e:
          if e is None:
@@ -1949,12 +1951,8 @@ if __name__ == "__main__" :
    start_time = datetime.now()
    sys.stdout.write(f"Started at {TreeSortRunner.format_datetime(start_time)}\n\n")
 
-   # TESTING
-   sys.stderr.write(f"Test text written to stderr\n")
-   sys.stdout.write(f"Test text written to stdout")
-
    result = None
-   
+
    try:
       result = main()
    except Exception as e:

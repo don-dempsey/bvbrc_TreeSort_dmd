@@ -76,14 +76,28 @@ sub process_treesort
 
    my $parallel = $ENV{P3_ALLOCATED_CPU};
 
+   my ($stdout, $stderr) = ("", "");
+
    # Run the Python script that runs TreeSort.
    my @cmd = ("run_treesort", "-i", $input_dir, "-j", $job_desc, "-w", $work_dir);
-   my $ok = run(\@cmd);
+   my $ok = run(\@cmd,
+      ">", sub {
+         $stdout .= $_[0];
+         print STDOUT $_[0];
+      },
+      "2>", sub {
+         $stderr .= $_[0];
+         print STDERR $_[0];
+      },
+   );
+   my $status = $?;
 
    # Was the command successful?
    if (!$ok)
    {
-      die "Command failed: @cmd\n";
+      die "Command failed (status $status): @cmd\n"
+         . "\nSTDERR:\n$stderr"
+         . "\nSTDOUT:\n$stdout";
       exit 1;
    }
 
