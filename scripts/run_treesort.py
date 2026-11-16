@@ -486,7 +486,7 @@ class TreeSortRunner:
          # Run the command
          cmd_result = subprocess.run(cmd, shell=False, check=True)
 
-         if cmd_result.returncode > 0 or not os.path.exists(csv_file_path):
+         if cmd_result.returncode != 0 or not os.path.exists(csv_file_path):
             raise Exception(f"Forester was unable to generate the CSV file\n")
          
          # Open the CSV file
@@ -788,7 +788,7 @@ class TreeSortRunner:
          # Run the command
          cmd_result = subprocess.run(cmd, shell=False, check=True, capture_output=True)
 
-         if cmd_result.returncode > 0 or not os.path.exists(phyloxml_file_path):
+         if cmd_result.returncode != 0 or not os.path.exists(phyloxml_file_path):
             raise Exception(f"Forester was unable to export the PhyloXML file\n")
 
       except subprocess.CalledProcessError as cpe:  
@@ -1614,24 +1614,27 @@ class TreeSortRunner:
          # Display the command about to be run.
          print(f"{' '.join(cmd)}\n")
 
+         # Run the command
          result = subprocess.run(cmd, shell=False, capture_output=True, text=True, check=True)
-         if result.returncode == 0:
-            
-            result_status = True
+         if result.returncode != 0:
+            raise Exception(result.stderr)
 
-            # Iterate over lines in the result's stdout to 1) look for the segments 
-            # that were found, 2) parse TreeTime data by segment, and 3) to echo messages 
-            # to stdout.
-            for line in result.stdout.strip().splitlines():
+         result_status = True
 
-               if line.startswith("FOUND_SEGMENTS:"):
-                  self.job_data.segments = line.replace("FOUND_SEGMENTS:", "").strip()
+         # Iterate over lines in the result's stdout to 1) look for the segments 
+         # that were found, 2) parse TreeTime data by segment, and 3) to echo messages 
+         # to stdout.
+         for line in result.stdout.strip().splitlines():
 
-                  print(f"job_data.segments has been updated to {self.job_data.segments}")
+            if line.startswith("FOUND_SEGMENTS:"):
+               self.job_data.segments = line.replace("FOUND_SEGMENTS:", "").strip()
 
-               else:
-                  # Write the script's stdout to run_treesort.py's stdout.
-                  sys.stdout.write(f"{line}\n")
+               print(f"job_data.segments has been updated to {self.job_data.segments}")
+
+            else:
+               # Write the script's stdout to run_treesort.py's stdout.
+               sys.stdout.write(f"{line}\n")
+         
 
       except subprocess.CalledProcessError as cpe:  
          sys.stderr.write(f"Error preparing dataset:\n {cpe.stderr}\n")
@@ -1711,8 +1714,10 @@ class TreeSortRunner:
          # Update the results object with TreeSort's stdout.
          self.results.treesort_stdout = result.stdout
 
-         if result.returncode == 0:
-            result_status = True
+         if result.returncode != 0:
+            raise Exception(result.stderr)
+
+         result_status = True
 
       except subprocess.CalledProcessError as cpe:  
          sys.stderr.write(f"Error in TreeSort:\n {cpe.stderr}\n")
