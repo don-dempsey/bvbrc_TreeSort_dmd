@@ -1948,9 +1948,21 @@ if __name__ == "__main__" :
    # Print the start time to stdout.
    start_time = datetime.now()
    sys.stdout.write(f"Started at {TreeSortRunner.format_datetime(start_time)}\n\n")
-      
-   result = main()
 
+   # TESTING
+   sys.stderr.write(f"Test text written to stderr\n")
+   sys.stdout.write(f"Test text written to stdout")
+
+   result = None
+   
+   try:
+      result = main()
+   except Exception as e:
+      if e is None:
+         sys.stderr.write(f"An unknown error occurred in main\n")
+      else:
+         sys.stderr.write(f"Error in TreeSort:\n {type(e).__name__}: {e}\n")
+      
    # Print the end time and total duration of main.
    sys.stdout.write(f"\nFinished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), start_time)}\n\n")
 
