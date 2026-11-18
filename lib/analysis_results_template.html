@@ -28,10 +28,6 @@
          margin-bottom: 2.0rem;
       }
 
-      /*.treesort--inline-details {
-         margin: 0 0 0 0.5rem;
-      }*/
-
       .treesort--section-body {
          margin-bottom: 2.0rem;
       }
@@ -144,7 +140,7 @@
 
       // File types used in the Workspace browser.
       const FileType = {
-         aln: "aln", // TODO: Is this a valid file type?
+         aln: "aln",
          csv: "csv",
          nwk: "nwk",
          pdf: "pdf",
@@ -277,7 +273,7 @@
             // Try to get the segment summary from the JSON.
             const summaryHTML = getSegmentSummary(segment_);
             if (summaryHTML.length < 1) {
-               html += `<div class="no-results">No data is available</div>`;
+               html += `<div class="no-results">No segment-specific data is available for segment ${segment_}</div>`;
                return;
             }
 
