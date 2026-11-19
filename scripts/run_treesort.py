@@ -692,6 +692,8 @@ class TreeSortRunner:
       with open(summary_path, "w+") as summary_file:
          summary_file.write(str(html_template))
 
+
+      sys.stdout.write(f"{msg_prefix} Created the {Constants.ANALYSIS_RESULTS_FILENAME} file\n")
       sys.stdout.write("\n")
 
       return
@@ -888,7 +890,6 @@ class TreeSortRunner:
          auth_token = self.get_auth_token()
          if auth_token:
             headers = {"Authorization": auth_token}
-            sys.stdout.write("Adding an Authorization token\n")
          else:
             headers = {}
 
@@ -962,7 +963,7 @@ class TreeSortRunner:
    # Format the Results object as JSON.
    def format_results_as_json(self):
 
-      msg_prefix = "[format_results_as_json]"
+      msg_prefix = "\t[format_results_as_json]"
 
       sys.stdout.write(f"{msg_prefix} About to format results as JSON\n")
 
@@ -1609,7 +1610,7 @@ class TreeSortRunner:
    # Parse the segment-specific output files containing TreeTime's stdout.
    def process_treetime_stdout_files(self) -> bool:
 
-      msg_prefix = "[process_treetime_stdout_files]"
+      msg_prefix = "\t[process_treetime_stdout_files]"
 
       sys.stdout.write(f"{msg_prefix} About to process stdout from TreeTime\n")
 
@@ -1649,7 +1650,6 @@ class TreeSortRunner:
             continue
 
       sys.stdout.write(f"{msg_prefix} Finished processing TreeTime stdout\n")
-      sys.stdout.write("\n")
 
       return is_success
    
@@ -2046,7 +2046,7 @@ if __name__ == "__main__" :
    result = main()
 
    # Print the end time and total duration of main.
-   sys.stdout.write(f"\nFinished run_treesort at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), script_start_time)}\n\n")
+   sys.stdout.write(f"Finished run_treesort at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), script_start_time)}\n\n")
 
    if result:
       sys.exit(0)

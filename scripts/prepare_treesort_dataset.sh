@@ -6,7 +6,7 @@
 # Example usage: ./prepare_treesort_dataset.sh --segments "HA,NA" segments.fasta HA myoutdir
 # Example with default segments:  ./prepare_treesort_dataset.sh segments.fasta HA myoutdir
 
-echo -e "Starting prepare_treesort_dataset.sh\n"
+#echo -e "Starting prepare_treesort_dataset.sh\n"
 
 # These are the default segment names
 declare -a segments=("PB2" "PB1" "PA" "HA" "NP" "NA" "MP" "NS")
@@ -187,6 +187,6 @@ do
 done
 wait
 
-echo -e "Completed prepare_treesort_dataset.sh\n"
+#echo -e "Completed prepare_treesort_dataset.sh\n"
 
 exit 0
