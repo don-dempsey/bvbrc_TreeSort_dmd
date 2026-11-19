@@ -1724,7 +1724,7 @@ class TreeSortRunner:
                # Use the segments found by TreeTime to populate the list of segments we will include in the analysis.
                self.populate_segments_for_analysis(safe_trim(segment_line).upper())
                
-               sys.stdout.write(f"{msg_prefix} The list of segments has been updated to {",".join(self.segments_for_analysis)}\n")
+               sys.stdout.write(f"{msg_prefix} The list of segments has been updated to {','.join(self.segments_for_analysis)}\n")
             else:
                # Write the script's stdout to run_treesort.py's stdout.
                sys.stdout.write(f"\t{line}\n")
