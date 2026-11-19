@@ -362,7 +362,7 @@ class TreeSortRunner:
          4) Rewrite FASTA headers and validate the FASTA content
          5) Write the FASTA file to out_fasta_path
       """
-      msg_prefix = "[build_input_fasta_from_group]"
+      msg_prefix = "\t[build_input_fasta_from_group]"
 
       sys.stdout.write(f"{msg_prefix} Using the genome group at {group_path}\n")
 
@@ -410,7 +410,7 @@ class TreeSortRunner:
       if valid_genome_count < Constants.MIN_GENOMES_FOR_ANALYSIS:
          raise RuntimeError(f"At least {Constants.MIN_GENOMES_FOR_ANALYSIS} genomes are required for analysis but only {valid_genome_count} were provided")
       
-      sys.stdout.write(f"{msg_prefix} Created a FASTA file from the genome group ({out_fasta_path})\n")
+      sys.stdout.write(f"{msg_prefix} Created a FASTA file from the genome group\n")
       sys.stdout.write("\n")
       return
 
@@ -844,7 +844,7 @@ class TreeSortRunner:
       """
       Fetch in chunks to avoid enormous URL length (even if API limit is 25k).
       """
-      msg_prefix = "[fetch_all_metadata]"
+      msg_prefix = "\t[fetch_all_metadata]"
 
       sys.stdout.write(f"{msg_prefix} About to fetch genome metadata\n")
 
@@ -925,7 +925,7 @@ class TreeSortRunner:
                sys.stderr.write(str(e))
                continue
           
-         sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genomes and {valid_genomes} were valid.\n")
+         #sys.stdout.write(f"Fetched metadata for {len(genome_ids)} genomes and {valid_genomes} were valid.\n")
 
       except Exception as e:
          sys.stderr.write(f"An error occurred fetching genome metadata:\n {e}\n")
@@ -1048,24 +1048,18 @@ class TreeSortRunner:
       """
       auth_token = None
 
-      try:
-         auth_token = os.environ.get(Constants.AUTH_TOKEN_ENV, default=None)
+      # Look for the auth token as an environment variable.
+      auth_token = os.environ.get(Constants.AUTH_TOKEN_ENV, default=None)
 
+      if not auth_token:
+         # Look in the auth token file.
+         token_file = Path.home().joinpath(Constants.AUTH_TOKEN_FILE)
+         if not token_file.exists():
+            raise RuntimeError(f"The auth token was not found as an environment variable and the auth token file doesn't exist")
+         
+         auth_token = token_file.read_text().strip()
          if not auth_token:
-            token_file = Path.home().joinpath(Constants.AUTH_TOKEN_FILE)
-            if token_file.exists():
-               auth_token = token_file.read_text().strip()
-               if not auth_token:
-                  sys.stdout.write(f"Unable to use auth token file {Constants.AUTH_TOKEN_FILE}\n")
-               else:
-                  sys.stdout.write(f"Using auth token file {Constants.AUTH_TOKEN_FILE}\n")
-            else:
-               raise Exception("Unable to find a valid auth token\n")
-         else:
-            sys.stdout.write(f"Using {Constants.AUTH_TOKEN_ENV}\n")
-
-      except Exception as e:
-         sys.stdout.write(f"Unable to find a valid auth token:\n\t{str(e)}\n")
+            raise RuntimeError("The auth token was not found as an environment variable or in the auth token file")
 
       return auth_token
    
@@ -1075,7 +1069,7 @@ class TreeSortRunner:
       Uses p3-get-genome-group "<workspace path>" and extracts genome_ids like 11320.471792
       """
 
-      msg_prefix = "[get_genome_ids_from_group]"
+      msg_prefix = "\t[get_genome_ids_from_group]"
 
       sys.stdout.write(f"{msg_prefix} About to retrieve genome metadata for the genome group\n")
 
@@ -1110,7 +1104,7 @@ class TreeSortRunner:
          return None
 
       sys.stdout.write(f"{msg_prefix} The genome group contains {len(ids)} genome IDs\n")
-      sys.stdout.write("\n")
+
       return ids
 
 
@@ -1663,6 +1657,9 @@ class TreeSortRunner:
    # Run prepare_dataset.sh to build alignments and trees and compile a descriptor file.
    def run_prepare_dataset(self):
 
+      # We will calculate how long prepare_dataset takes.
+      start_time = datetime.now()
+      
       msg_prefix = "[run_prepare_dataset]"
 
       sys.stdout.write(f"{msg_prefix} About to run prepare_treesort_dataset.sh\n")
@@ -1739,7 +1736,8 @@ class TreeSortRunner:
             sys.stdout.write(f"{msg_prefix} {result.stdout}\n")
          raise RuntimeError(f"Error in TreeSortRunner.run_prepare_dataset:\n {type(e).__name__}: {e}")
 
-      sys.stdout.write(f"{msg_prefix} prepare_treesort_dataset.sh has completed\n")
+      # Print the end time and total duration of prepare_dataset.
+      sys.stdout.write(f"{msg_prefix} Finished prepare_dataset at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), start_time)}\n")
       sys.stdout.write("\n")
       return
 
@@ -2006,14 +2004,8 @@ def main(argv=None) -> bool:
       # Prepare the input file
       runner.prepare_input_file()
 
-      # We will calculate how long prepare_dataset takes.
-      start_time = datetime.now()
-
       # Prepare the dataset
       runner.run_prepare_dataset()
-
-      # Print the end time and total duration of prepare_dataset.
-      sys.stdout.write(f"Finished prepare_dataset at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), start_time)}\n")
 
       # Run TreeSort
       runner.tree_sort()
@@ -2049,12 +2041,12 @@ if __name__ == "__main__" :
 
    # Print the start time to stdout.
    script_start_time = datetime.now()
-   sys.stdout.write(f"Started at {TreeSortRunner.format_datetime(script_start_time)}\n\n")
+   sys.stdout.write(f"\nStarted run_treesort at {TreeSortRunner.format_datetime(script_start_time)}\n\n")
 
    result = main()
 
    # Print the end time and total duration of main.
-   sys.stdout.write(f"\nFinished at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), script_start_time)}\n\n")
+   sys.stdout.write(f"\nFinished run_treesort at {TreeSortRunner.format_end_datetime_with_duration(datetime.now(), script_start_time)}\n\n")
 
    if result:
       sys.exit(0)
